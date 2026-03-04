@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      annual_objectives: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string | null
+          revenue_target: number
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          revenue_target: number
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          revenue_target?: number
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       bank_accounts: {
         Row: {
           created_at: string
@@ -190,6 +217,45 @@ export type Database = {
         }
         Relationships: []
       }
+      offers: {
+        Row: {
+          billing_type: string
+          created_at: string
+          emoji: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          recurring_duration: number | null
+          sort_order: number | null
+          unit_price: number
+          user_id: string
+        }
+        Insert: {
+          billing_type: string
+          created_at?: string
+          emoji?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          recurring_duration?: number | null
+          sort_order?: number | null
+          unit_price: number
+          user_id: string
+        }
+        Update: {
+          billing_type?: string
+          created_at?: string
+          emoji?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          recurring_duration?: number | null
+          sort_order?: number | null
+          unit_price?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -210,6 +276,47 @@ export type Database = {
           id?: string
         }
         Relationships: []
+      }
+      quarterly_objectives: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string | null
+          offer_id: string
+          quarter: number
+          target_new_clients: number
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          offer_id: string
+          quarter: number
+          target_new_clients?: number
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          offer_id?: string
+          quarter?: number
+          target_new_clients?: number
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quarterly_objectives_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transactions: {
         Row: {
