@@ -14,6 +14,7 @@ import ImportPage from "./pages/ImportPage";
 import CategoriesPage from "./pages/CategoriesPage";
 import ObjectifsPage from "./pages/ObjectifsPage";
 import TresoreriePage from "./pages/TresoreriePage";
+import ParametresPage from "./pages/ParametresPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,7 +44,7 @@ const App = () => (
             <Route path="/categories" element={<ProtectedRoute><AppLayout><CategoriesPage /></AppLayout></ProtectedRoute>} />
             <Route path="/objectifs" element={<ProtectedRoute><AppLayout><ObjectifsPage /></AppLayout></ProtectedRoute>} />
             <Route path="/tresorerie" element={<ProtectedRoute><AppLayout><TresoreriePage /></AppLayout></ProtectedRoute>} />
-            <Route path="/parametres" element={<ProtectedRoute><AppLayout><PlaceholderPage title="Paramètres" /></AppLayout></ProtectedRoute>} />
+            <Route path="/parametres" element={<ProtectedRoute><AppLayout><ParametresPage /></AppLayout></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
