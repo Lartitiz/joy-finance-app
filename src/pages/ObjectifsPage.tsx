@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { ChevronLeft, ChevronRight, Save, Plus } from 'lucide-react';
 import { formatEur } from '@/lib/dashboard-utils';
 import { InvoiceModal } from '@/components/objectifs/InvoiceModal';
+import { InvoiceDetailSheet } from '@/components/objectifs/InvoiceDetailSheet';
 
 const MONTH_NAMES = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -51,6 +52,8 @@ export default function ObjectifsPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -202,12 +205,37 @@ export default function ObjectifsPage() {
     else { toast.success('Facture supprimée'); load(); }
   };
 
+  const handleMarkPaid = async (id: string) => {
+    const { error } = await supabase.from('invoices').update({ status: 'paid', paid_date: new Date().toISOString().slice(0, 10) }).eq('id', id);
+    if (error) toast.error(error.message);
+    else { toast.success('Facture marquée comme payée'); load(); }
+  };
+
+  const handleSaveFromSheet = async (data: { client_name: string; description: string; amount: number; date_issued: string; date_due: string; status: string; paid_date: string | null }) => {
+    if (!detailInvoice) return;
+    const { error } = await supabase.from('invoices').update(data).eq('id', detailInvoice.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Facture mise à jour');
+    setDetailSheetOpen(false);
+    setDetailInvoice(null);
+    load();
+  };
+
   const revPct = objective?.revenue_target ? Math.min(100, Math.round((actuals.revenue / objective.revenue_target) * 100)) : null;
   const expPct = objective?.expense_budget ? Math.min(100, Math.round((actuals.expense / objective.expense_budget) * 100)) : null;
 
   const invoiceTotal = invoices.filter(i => i.status === 'sent' || i.status === 'paid').reduce((s, i) => s + i.amount, 0);
 
-  const statusBadge = (status: string | null) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueInvoices = invoices.filter(i => i.date_due && i.date_due < today && i.status !== 'paid' && i.status !== 'cancelled');
+  const overdueTotal = overdueInvoices.reduce((s, i) => s + i.amount, 0);
+
+  const paidTotal = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
+  const sentTotal = invoices.filter(i => i.status === 'sent' && !overdueInvoices.find(o => o.id === i.id)).reduce((s, i) => s + i.amount, 0);
+
+  const statusBadge = (status: string | null, inv?: Invoice) => {
+    const isOverdue = inv && inv.date_due && inv.date_due < today && status !== 'paid' && status !== 'cancelled';
+    const effectiveStatus = isOverdue ? 'overdue' : (status ?? 'draft');
     const map: Record<string, { label: string; cls: string }> = {
       draft: { label: 'Brouillon', cls: 'bg-muted text-muted-foreground' },
       sent: { label: 'Envoyée', cls: 'bg-secondary text-secondary-foreground' },
@@ -215,7 +243,7 @@ export default function ObjectifsPage() {
       overdue: { label: 'En retard', cls: 'bg-destructive/10 text-destructive' },
       cancelled: { label: 'Annulée', cls: 'bg-muted text-muted-foreground' },
     };
-    const s = map[status ?? 'draft'] ?? map.draft;
+    const s = map[effectiveStatus] ?? map.draft;
     return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>;
   };
 
@@ -428,6 +456,59 @@ export default function ObjectifsPage() {
           </Button>
         </div>
 
+        {/* Overdue alert */}
+        {overdueInvoices.length > 0 && (
+          <div className="mx-5 mb-3 rounded-xl border border-secondary bg-secondary/10 px-4 py-3 flex items-center gap-2">
+            <span className="text-base">⚠️</span>
+            <span className="text-sm font-medium">
+              {overdueInvoices.length} facture{overdueInvoices.length > 1 ? 's' : ''} en retard pour un total de <span className="font-mono">{formatEur(overdueTotal)}</span>
+            </span>
+          </div>
+        )}
+
+        {/* Stacked bar mini chart */}
+        {invoices.length > 0 && (
+          <div className="mx-5 mb-4">
+            <div className="flex items-center gap-1 h-6 rounded-full overflow-hidden bg-muted relative">
+              {paidTotal > 0 && (
+                <div
+                  className="h-full bg-green-500 transition-all"
+                  style={{ width: `${(paidTotal / Math.max(invoiceTotal, objective?.revenue_target ?? invoiceTotal)) * 100}%` }}
+                  title={`Payées: ${formatEur(paidTotal)}`}
+                />
+              )}
+              {sentTotal > 0 && (
+                <div
+                  className="h-full bg-secondary transition-all"
+                  style={{ width: `${(sentTotal / Math.max(invoiceTotal, objective?.revenue_target ?? invoiceTotal)) * 100}%` }}
+                  title={`Envoyées: ${formatEur(sentTotal)}`}
+                />
+              )}
+              {overdueTotal > 0 && (
+                <div
+                  className="h-full bg-destructive transition-all"
+                  style={{ width: `${(overdueTotal / Math.max(invoiceTotal, objective?.revenue_target ?? invoiceTotal)) * 100}%` }}
+                  title={`En retard: ${formatEur(overdueTotal)}`}
+                />
+              )}
+              {/* Objective line */}
+              {objective?.revenue_target && invoiceTotal > 0 && (
+                <div
+                  className="absolute top-0 bottom-0 border-r-2 border-dashed border-foreground/40"
+                  style={{ left: `${Math.min(100, (objective.revenue_target / Math.max(invoiceTotal, objective.revenue_target)) * 100)}%` }}
+                  title={`Objectif: ${formatEur(objective.revenue_target)}`}
+                />
+              )}
+            </div>
+            <div className="flex items-center gap-4 mt-1.5 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Payées</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-secondary inline-block" /> Envoyées</span>
+              {overdueInvoices.length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-destructive inline-block" /> En retard</span>}
+              {objective?.revenue_target && <span className="flex items-center gap-1"><span className="w-2 h-2 border border-foreground/40 inline-block" style={{ borderStyle: 'dashed' }} /> Objectif</span>}
+            </div>
+          </div>
+        )}
+
         {invoices.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -437,30 +518,19 @@ export default function ObjectifsPage() {
                   <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Description</th>
                   <th className="text-right px-5 py-2.5 text-xs text-muted-foreground font-medium">Montant</th>
                   <th className="text-center px-5 py-2.5 text-xs text-muted-foreground font-medium">Statut</th>
-                  <th className="text-center px-5 py-2.5 text-xs text-muted-foreground font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-t border-border">
+                  <tr
+                    key={inv.id}
+                    className="border-t border-border hover:bg-muted/30 cursor-pointer transition-colors"
+                    onClick={() => { setDetailInvoice(inv); setDetailSheetOpen(true); }}
+                  >
                     <td className="px-5 py-2.5">{inv.client_name}</td>
                     <td className="px-5 py-2.5 text-muted-foreground max-w-[200px] truncate">{inv.description || '—'}</td>
                     <td className="px-5 py-2.5 text-right font-mono text-xs">{formatEur(inv.amount)}</td>
-                    <td className="px-5 py-2.5 text-center">{statusBadge(inv.status)}</td>
-                    <td className="px-5 py-2.5 text-center">
-                      <button
-                        onClick={() => { setEditingInvoice(inv); setInvoiceModalOpen(true); }}
-                        className="text-xs text-primary hover:underline mr-2"
-                      >
-                        Modifier
-                      </button>
-                      <button
-                        onClick={() => handleDeleteInvoice(inv.id)}
-                        className="text-xs text-destructive hover:underline"
-                      >
-                        Supprimer
-                      </button>
-                    </td>
+                    <td className="px-5 py-2.5 text-center">{statusBadge(inv.status, inv)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -479,6 +549,15 @@ export default function ObjectifsPage() {
         onSave={handleSaveInvoice}
         invoice={editingInvoice}
         defaultDate={monthKey}
+      />
+
+      <InvoiceDetailSheet
+        open={detailSheetOpen}
+        onOpenChange={(open) => { setDetailSheetOpen(open); if (!open) setDetailInvoice(null); }}
+        invoice={detailInvoice}
+        onSave={handleSaveFromSheet}
+        onDelete={handleDeleteInvoice}
+        onMarkPaid={handleMarkPaid}
       />
     </div>
   );
