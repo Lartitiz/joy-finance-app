@@ -49,17 +49,19 @@ export default function ParametresPage() {
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('date, label, amount, subcategory, notes, source')
+        .select('date, label, amount, subcategory, notes, source, categories(name, emoji)')
         .eq('user_id', user.id)
         .order('date', { ascending: false });
 
       if (error) throw error;
 
       const rows = data ?? [];
-      const header = 'Date,Libellé,Montant,Sous-catégorie,Notes,Source';
-      const csvRows = rows.map(r =>
-        [r.date, `"${(r.label ?? '').replace(/"/g, '""')}"`, r.amount, `"${r.subcategory ?? ''}"`, `"${(r.notes ?? '').replace(/"/g, '""')}"`, r.source ?? ''].join(',')
-      );
+      const header = 'Date,Libellé,Montant,Catégorie,Sous-catégorie,Notes,Source';
+      const csvRows = rows.map(r => {
+        const cat = (r as any).categories;
+        const catLabel = cat ? `${cat.emoji || ''} ${cat.name}`.trim() : '';
+        return [r.date, `"${(r.label ?? '').replace(/"/g, '""')}"`, r.amount, `"${catLabel}"`, `"${r.subcategory ?? ''}"`, `"${(r.notes ?? '').replace(/"/g, '""')}"`, r.source ?? ''].join(',');
+      });
       const csv = [header, ...csvRows].join('\n');
 
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
