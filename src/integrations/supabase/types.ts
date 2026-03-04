@@ -14,6 +14,182 @@ export type Database = {
   }
   public: {
     Tables: {
+      bank_accounts: {
+        Row: {
+          created_at: string
+          current_balance: number | null
+          id: string
+          last_updated: string | null
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          last_updated?: string | null
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          last_updated?: string | null
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      categories: {
+        Row: {
+          color: string | null
+          created_at: string
+          emoji: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          sort_order: number | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          emoji?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          sort_order?: number | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          emoji?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          sort_order?: number | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      import_batches: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          filename: string
+          id: string
+          row_count: number | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          filename: string
+          id?: string
+          row_count?: number | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          filename?: string
+          id?: string
+          row_count?: number | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      invoices: {
+        Row: {
+          amount: number
+          category_id: string | null
+          client_name: string
+          created_at: string
+          date_due: string | null
+          date_issued: string
+          description: string | null
+          id: string
+          notes: string | null
+          paid_date: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          category_id?: string | null
+          client_name: string
+          created_at?: string
+          date_due?: string | null
+          date_issued: string
+          description?: string | null
+          id?: string
+          notes?: string | null
+          paid_date?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category_id?: string | null
+          client_name?: string
+          created_at?: string
+          date_due?: string | null
+          date_issued?: string
+          description?: string | null
+          id?: string
+          notes?: string | null
+          paid_date?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monthly_objectives: {
+        Row: {
+          created_at: string
+          expense_budget: number | null
+          id: string
+          month: string
+          notes: string | null
+          revenue_target: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expense_budget?: number | null
+          id?: string
+          month: string
+          notes?: string | null
+          revenue_target?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expense_budget?: number | null
+          id?: string
+          month?: string
+          notes?: string | null
+          revenue_target?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -34,6 +210,66 @@ export type Database = {
           id?: string
         }
         Relationships: []
+      }
+      transactions: {
+        Row: {
+          amount: number
+          category_id: string | null
+          created_at: string
+          date: string
+          id: string
+          import_batch_id: string | null
+          is_validated: boolean | null
+          label: string
+          notes: string | null
+          source: string | null
+          subcategory: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          category_id?: string | null
+          created_at?: string
+          date: string
+          id?: string
+          import_batch_id?: string | null
+          is_validated?: boolean | null
+          label: string
+          notes?: string | null
+          source?: string | null
+          subcategory?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category_id?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          import_batch_id?: string | null
+          is_validated?: boolean | null
+          label?: string
+          notes?: string | null
+          source?: string | null
+          subcategory?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_batches"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
