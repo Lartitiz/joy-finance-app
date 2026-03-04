@@ -1,13 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { LogOut, Download, Trash2, ExternalLink } from 'lucide-react';
+import { LogOut, Download, Trash2, ExternalLink, Pencil, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { formatEur } from '@/lib/dashboard-utils';
+import { OfferModal } from '@/components/objectifs/OfferModal';
+
+interface Offer {
+  id: string;
+  name: string;
+  emoji: string | null;
+  unit_price: number;
+  billing_type: 'recurring_monthly' | 'one_time';
+  recurring_duration: number | null;
+  sort_order: number | null;
+}
 
 export default function ParametresPage() {
   const { user } = useAuth();
@@ -16,16 +27,63 @@ export default function ParametresPage() {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
+  // Offers
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offerModalOpen, setOfferModalOpen] = useState(false);
+  const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
+
+  const loadProfile = useCallback(() => {
     if (!user) return;
     supabase.from('profiles').select('full_name, email, created_at').eq('id', user.id).maybeSingle().then(({ data }) => {
       setProfile(data);
     });
   }, [user]);
 
+  const loadOffers = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('offers')
+      .select('id, name, emoji, unit_price, billing_type, recurring_duration, sort_order')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('sort_order');
+    setOffers((data ?? []).map((o: any) => ({ ...o, unit_price: Number(o.unit_price) })));
+  }, [user]);
+
+  useEffect(() => {
+    loadProfile();
+    loadOffers();
+  }, [loadProfile, loadOffers]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
+  };
+
+  const handleSaveOffer = async (data: { name: string; emoji: string; unit_price: number; billing_type: 'recurring_monthly' | 'one_time'; recurring_duration: number | null }) => {
+    if (!user) return;
+    if (editingOffer) {
+      const { error } = await supabase.from('offers').update(data).eq('id', editingOffer.id);
+      if (error) { toast.error(error.message); return; }
+      toast.success('Offre modifiée');
+    } else {
+      const maxOrder = offers.length > 0 ? Math.max(...offers.map(o => o.sort_order ?? 0)) : 0;
+      const { error } = await supabase.from('offers').insert({ ...data, user_id: user.id, sort_order: maxOrder + 1 });
+      if (error) {
+        toast.error(error.message.includes('unique') ? 'Une offre avec ce nom existe déjà' : error.message);
+        return;
+      }
+      toast.success('Offre créée');
+    }
+    setOfferModalOpen(false);
+    setEditingOffer(null);
+    loadOffers();
+  };
+
+  const handleDeleteOffer = async (id: string) => {
+    const { error } = await supabase.from('offers').delete().eq('id', id);
+    if (error) toast.error(error.message);
+    else { toast.success('Offre supprimée'); loadOffers(); }
   };
 
   const handleExport = async () => {
@@ -67,16 +125,16 @@ export default function ParametresPage() {
     if (!user) return;
     setDeleting(true);
     try {
-      // Delete in order to respect FK constraints
       await supabase.from('transactions').delete().eq('user_id', user.id);
       await supabase.from('invoices').delete().eq('user_id', user.id);
       await supabase.from('monthly_objectives').delete().eq('user_id', user.id);
+      await supabase.from('quarterly_objectives').delete().eq('user_id', user.id);
+      await supabase.from('annual_objectives').delete().eq('user_id', user.id);
       await supabase.from('bank_accounts').delete().eq('user_id', user.id);
       await supabase.from('import_batches').delete().eq('user_id', user.id);
+      await supabase.from('offers').delete().eq('user_id', user.id);
       await supabase.from('categories').delete().eq('user_id', user.id);
 
-      // Re-trigger default categories by calling the edge function or inserting defaults
-      // Since the handle_new_user trigger only fires on signup, we manually insert defaults
       const defaultExpenses = [
         { name: 'Outils & SaaS', emoji: '🖥️', color: '3498db', type: 'expense', is_default: true, sort_order: 1 },
         { name: 'Loyer & charges', emoji: '🏠', color: 'E67E22', type: 'expense', is_default: true, sort_order: 2 },
@@ -98,11 +156,21 @@ export default function ParametresPage() {
         { name: 'Conférences & ateliers', emoji: '🎤', color: '9B59B6', type: 'revenue', is_default: true, sort_order: 5 },
         { name: 'Autre revenu', emoji: '❓', color: '95A5A6', type: 'revenue', is_default: true, sort_order: 6 },
       ];
-
       const allDefaults = [...defaultExpenses, ...defaultRevenues].map(c => ({ ...c, user_id: user.id }));
       await supabase.from('categories').insert(allDefaults);
 
-      toast.success('Toutes les données ont été supprimées. Les catégories par défaut ont été recréées.');
+      // Recreate default offers
+      const defaultOffers = [
+        { name: 'Ta Binôme', emoji: '👯', unit_price: 250, billing_type: 'recurring_monthly', recurring_duration: 6, sort_order: 1 },
+        { name: 'Agency', emoji: '🤝', unit_price: 2000, billing_type: 'one_time', recurring_duration: null, sort_order: 2 },
+        { name: 'Cours école', emoji: '🎓', unit_price: 2000, billing_type: 'one_time', recurring_duration: null, sort_order: 3 },
+        { name: 'Backup', emoji: '🔄', unit_price: 600, billing_type: 'one_time', recurring_duration: null, sort_order: 4 },
+        { name: 'L\'Assistant', emoji: '💻', unit_price: 15, billing_type: 'recurring_monthly', recurring_duration: null, sort_order: 5 },
+      ];
+      await supabase.from('offers').insert(defaultOffers.map(o => ({ ...o, user_id: user.id })));
+
+      toast.success('Toutes les données ont été supprimées. Les catégories et offres par défaut ont été recréées.');
+      loadOffers();
     } catch (e: any) {
       toast.error(e.message ?? 'Erreur lors de la suppression');
     }
@@ -112,6 +180,107 @@ export default function ParametresPage() {
   return (
     <div className="space-y-8 max-w-2xl">
       <h1 className="text-2xl text-accent">Paramètres</h1>
+
+      {/* ───── 1. Profile ───── */}
+      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
+        <h2 className="text-lg text-accent font-serif font-normal">Mon profil</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-muted-foreground text-xs mb-0.5">Nom</p>
+            <p className="font-medium">{profile?.full_name || '—'}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs mb-0.5">Email</p>
+            <p className="font-medium">{profile?.email || user?.email || '—'}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs mb-0.5">Inscrit depuis</p>
+            <p className="font-medium">{profile?.created_at ? new Date(profile.created_at).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</p>
+          </div>
+        </div>
+        <Separator />
+        <Button variant="outline" onClick={handleLogout} className="text-destructive border-destructive/30 hover:bg-destructive/5">
+          <LogOut className="h-4 w-4 mr-2" />
+          Se déconnecter
+        </Button>
+      </div>
+
+      {/* ───── 2. Offers ───── */}
+      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
+        <h2 className="text-lg text-accent font-serif font-normal">Mes offres</h2>
+        <p className="text-sm text-muted-foreground">
+          Définis tes offres pour calculer automatiquement tes objectifs de CA par trimestre.
+        </p>
+
+        {offers.length === 0 ? (
+          <div className="text-center py-6 space-y-2">
+            <span className="text-4xl">🎯</span>
+            <p className="text-sm text-muted-foreground">Aucune offre configurée</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {offers.map((offer) => (
+              <div key={offer.id} className="flex items-center gap-3 rounded-xl border border-border p-3 hover:bg-muted/30 transition-colors">
+                <span className="text-xl shrink-0">{offer.emoji ?? '📦'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{offer.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="font-mono text-xs">{formatEur(offer.unit_price)}</span>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                      offer.billing_type === 'recurring_monthly'
+                        ? 'bg-primary/10 text-primary'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {offer.billing_type === 'recurring_monthly' ? 'Récurrent' : 'Ponctuel'}
+                    </span>
+                    {offer.billing_type === 'recurring_monthly' && (
+                      <span className="text-xs text-muted-foreground">
+                        {offer.recurring_duration ? `${offer.recurring_duration} mois` : 'illimité'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setEditingOffer(offer); setOfferModalOpen(true); }}
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  title="Modifier"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Supprimer">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-[20px]">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Supprimer "{offer.emoji} {offer.name}" ?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Cette offre sera retirée de tes objectifs. Les objectifs trimestriels associés seront supprimés.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Annuler</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => handleDeleteOffer(offer.id)}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Supprimer
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Button variant="outline" onClick={() => { setEditingOffer(null); setOfferModalOpen(true); }}>
+          <Plus className="h-4 w-4 mr-1" />
+          Nouvelle offre
+        </Button>
+      </div>
 
       {/* ───── 3. My data ───── */}
       <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
@@ -133,7 +302,7 @@ export default function ParametresPage() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Tu es sûr(e) ?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Cette action supprimera <span className="font-medium text-foreground">toutes</span> tes transactions, factures, objectifs, comptes bancaires et catégories personnalisées. Les catégories par défaut seront recréées. Cette action est irréversible.
+                  Cette action supprimera <span className="font-medium text-foreground">toutes</span> tes transactions, factures, objectifs, comptes bancaires et catégories personnalisées. Les catégories et offres par défaut seront recréées. Cette action est irréversible.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -168,6 +337,14 @@ export default function ParametresPage() {
           nowadaysagency.com <ExternalLink className="h-3 w-3" />
         </a>
       </div>
+
+      {/* Offer Modal */}
+      <OfferModal
+        open={offerModalOpen}
+        onOpenChange={setOfferModalOpen}
+        onSave={handleSaveOffer}
+        offer={editingOffer}
+      />
     </div>
   );
 }
