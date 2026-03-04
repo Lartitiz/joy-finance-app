@@ -154,7 +154,7 @@ export default function Dashboard() {
           valueColor={net >= 0 ? 'text-green-600' : 'text-destructive'}
         />
         {/* Objective card */}
-        <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3">
+        <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3 card-hover">
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">vs Objectif</span>
             <Target className="h-5 w-5 text-primary" />
@@ -277,12 +277,12 @@ function KpiCard({
   label: string; value: string; variation: string; positive: boolean; icon: React.ReactNode; valueColor?: string;
 }) {
   return (
-    <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3">
+    <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3 card-hover">
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{label}</span>
         {icon}
       </div>
-      <p className={`text-2xl lg:text-3xl font-mono ${valueColor ?? ''}`}>{value}</p>
+      <p className={`text-2xl lg:text-3xl font-mono animate-count ${valueColor ?? ''}`}>{value}</p>
       {variation && (
         <span className={`text-xs font-mono ${positive ? 'text-green-600' : 'text-destructive'}`}>
           {variation} vs mois précédent
@@ -305,7 +305,7 @@ function TopCategoryCard({ title, items, maxVal }: { title: string; items: TopCa
   }
 
   return (
-    <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-4">
+    <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-4 card-hover">
       <h3 className="text-sm text-accent font-medium">{title}</h3>
       <div className="space-y-3">
         {items.map((item) => (
@@ -319,7 +319,7 @@ function TopCategoryCard({ title, items, maxVal }: { title: string; items: TopCa
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full rounded-full transition-all"
+                className="h-full rounded-full animate-progress"
                 style={{
                   width: `${Math.max(4, (item.total / maxVal) * 100)}%`,
                   backgroundColor: `#${item.color}`,

@@ -129,7 +129,7 @@ export default function ParametresPage() {
       <h1 className="text-2xl text-accent">Paramètres</h1>
 
       {/* ───── 1. Profile ───── */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
+      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
         <h2 className="text-lg text-accent font-serif font-normal">Mon profil</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
@@ -153,7 +153,7 @@ export default function ParametresPage() {
       </div>
 
       {/* ───── 2. Import format ───── */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
+      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
         <h2 className="text-lg text-accent font-serif font-normal">Format d'import</h2>
         <p className="text-sm text-muted-foreground">
           L'outil détecte automatiquement le format de ton relevé bancaire. Si tu as des soucis, vérifie que ton fichier a bien des colonnes <span className="font-medium text-foreground">Date</span>, <span className="font-medium text-foreground">Libellé</span> et <span className="font-medium text-foreground">Montant</span>.
@@ -178,7 +178,7 @@ export default function ParametresPage() {
       </div>
 
       {/* ───── 3. My data ───── */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
+      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
         <h2 className="text-lg text-accent font-serif font-normal">Mes données</h2>
         <div className="flex flex-col sm:flex-row gap-3">
           <Button variant="outline" onClick={handleExport} disabled={exporting}>
@@ -216,7 +216,7 @@ export default function ParametresPage() {
       </div>
 
       {/* ───── 4. About ───── */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-2">
+      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-2 card-hover">
         <h2 className="text-lg text-accent font-serif font-normal">À propos</h2>
         <p className="text-sm font-medium">Nowadays Finance</p>
         <p className="text-sm text-muted-foreground">Outil de pilotage financier pour indépendants et freelances.</p>
