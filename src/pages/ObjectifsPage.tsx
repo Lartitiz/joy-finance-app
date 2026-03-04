@@ -329,7 +329,7 @@ export default function ObjectifsPage() {
       {/* Progress bars */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Revenue progress */}
-        <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3">
+        <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3 card-hover">
           <h3 className="text-sm text-muted-foreground">Revenus</h3>
           {revPct !== null ? (
             <>
@@ -338,7 +338,7 @@ export default function ObjectifsPage() {
                 <span className="text-xs text-muted-foreground">/ {formatEur(objective!.revenue_target!)} ({revPct}%)</span>
               </div>
               <div className="h-3 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${revPct}%` }} />
+                <div className="h-full bg-primary rounded-full animate-progress" style={{ width: `${revPct}%` }} />
               </div>
             </>
           ) : (
@@ -347,7 +347,7 @@ export default function ObjectifsPage() {
         </div>
 
         {/* Expense progress */}
-        <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3">
+        <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3 card-hover">
           <h3 className="text-sm text-muted-foreground">Dépenses</h3>
           {expPct !== null ? (
             <>
@@ -357,7 +357,7 @@ export default function ObjectifsPage() {
               </div>
               <div className="h-3 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all"
+                  className="h-full rounded-full animate-progress"
                   style={{
                     width: `${expPct}%`,
                     backgroundColor: expPct < 50 ? '#27AE60' : expPct < 80 ? '#F39C12' : '#E74C3C',

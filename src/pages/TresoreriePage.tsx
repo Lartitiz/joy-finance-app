@@ -220,12 +220,12 @@ export default function TresoreriePage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Total card */}
-            <div className="bg-card rounded-[20px] shadow-soft p-5 border-2 border-primary/20">
+            <div className="bg-card rounded-[20px] shadow-soft p-5 border-2 border-primary/20 card-hover">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
                 <Wallet className="h-4 w-4" />
                 Solde total
               </div>
-              <p className={`text-3xl font-mono font-medium ${totalBalance >= 0 ? 'text-green-600' : 'text-destructive'}`}>
+              <p className={`text-3xl font-mono font-medium animate-count ${totalBalance >= 0 ? 'text-green-600' : 'text-destructive'}`}>
                 {formatEur(totalBalance)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">{accounts.length} compte{accounts.length > 1 ? 's' : ''}</p>
@@ -233,7 +233,7 @@ export default function TresoreriePage() {
 
             {/* Individual accounts */}
             {accounts.map(acc => (
-              <div key={acc.id} className="bg-card rounded-[20px] shadow-soft p-5 group relative">
+              <div key={acc.id} className="bg-card rounded-[20px] shadow-soft p-5 group relative card-hover">
                 <button
                   onClick={() => handleOpenModal(acc)}
                   className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-muted"
@@ -301,7 +301,7 @@ export default function TresoreriePage() {
           <h2 className="text-lg text-accent font-serif font-normal">Prévisionnel simplifié</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Expected income */}
-            <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-2">
+            <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-2 card-hover">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <TrendingUp className="h-4 w-4 text-green-600" />
                 Entrées attendues
@@ -316,7 +316,7 @@ export default function TresoreriePage() {
             </div>
 
             {/* Recurring expenses */}
-            <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-2">
+            <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-2 card-hover">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <TrendingDown className="h-4 w-4 text-destructive" />
                 Sorties récurrentes

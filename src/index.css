@@ -90,3 +90,51 @@
     @apply font-serif font-normal;
   }
 }
+
+@layer utilities {
+  /* Card hover elevation */
+  .card-hover {
+    @apply transition-shadow duration-200;
+  }
+  .card-hover:hover {
+    box-shadow: 0 4px 24px 0 rgba(251, 61, 128, 0.10);
+  }
+
+  /* Progress bar animation */
+  .animate-progress {
+    animation: progress-grow 0.8s ease-out forwards;
+  }
+
+  /* Safe area for mobile bottom nav */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 8px);
+  }
+}
+
+@keyframes progress-grow {
+  from { width: 0%; }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes count-up {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+.animate-count {
+  animation: count-up 0.4s ease-out both;
+}
