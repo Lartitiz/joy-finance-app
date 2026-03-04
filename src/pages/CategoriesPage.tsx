@@ -1,5 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CategorizeTransactions } from '@/components/categories/CategorizeTransactions';
+import { CategoryList } from '@/components/categories/CategoryList';
 
 export default function CategoriesPage() {
   return (
@@ -13,9 +14,7 @@ export default function CategoriesPage() {
         </TabsList>
 
         <TabsContent value="list" className="mt-6">
-          <div className="bg-card rounded-[20px] shadow-soft p-12 flex items-center justify-center">
-            <p className="text-muted-foreground">Gestion des catégories — à venir</p>
-          </div>
+          <CategoryList />
         </TabsContent>
 
         <TabsContent value="categorize" className="mt-6">
