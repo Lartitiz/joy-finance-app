@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import ImportPage from "./pages/ImportPage";
 import CategoriesPage from "./pages/CategoriesPage";
+import ObjectifsPage from "./pages/ObjectifsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,7 +40,7 @@ const App = () => (
             />
             <Route path="/import" element={<ProtectedRoute><AppLayout><ImportPage /></AppLayout></ProtectedRoute>} />
             <Route path="/categories" element={<ProtectedRoute><AppLayout><CategoriesPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/objectifs" element={<ProtectedRoute><AppLayout><PlaceholderPage title="Objectifs" /></AppLayout></ProtectedRoute>} />
+            <Route path="/objectifs" element={<ProtectedRoute><AppLayout><ObjectifsPage /></AppLayout></ProtectedRoute>} />
             <Route path="/tresorerie" element={<ProtectedRoute><AppLayout><PlaceholderPage title="Trésorerie" /></AppLayout></ProtectedRoute>} />
             <Route path="/parametres" element={<ProtectedRoute><AppLayout><PlaceholderPage title="Paramètres" /></AppLayout></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
