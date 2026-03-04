@@ -345,7 +345,7 @@ interface TreemapItem {
 
 function TreemapContent(props: any) {
   const { x, y, width, height, name, emoji, pct, color, value } = props;
-  if (width < 4 || height < 4) return null;
+  if (!width || !height || width < 4 || height < 4 || !name) return null;
 
   const isSmall = width < 90 || height < 50;
 
