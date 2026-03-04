@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { LogOut, Download, Trash2, ExternalLink } from 'lucide-react';
@@ -13,8 +13,6 @@ export default function ParametresPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<{ full_name: string | null; email: string | null; created_at: string } | null>(null);
-  const [decimalSep, setDecimalSep] = useState(() => localStorage.getItem('pref_decimal_sep') || ',');
-  const [dateFormat, setDateFormat] = useState(() => localStorage.getItem('pref_date_format') || 'DD/MM/YYYY');
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -28,19 +26,6 @@ export default function ParametresPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
-  };
-
-  // Preferences saved to localStorage
-  const saveDecimalSep = (v: string) => {
-    setDecimalSep(v);
-    localStorage.setItem('pref_decimal_sep', v);
-    toast.success('Préférence enregistrée');
-  };
-
-  const saveDateFormat = (v: string) => {
-    setDateFormat(v);
-    localStorage.setItem('pref_date_format', v);
-    toast.success('Préférence enregistrée');
   };
 
   const handleExport = async () => {
@@ -124,60 +109,9 @@ export default function ParametresPage() {
     setDeleting(false);
   };
 
-  const selectClass = "w-full h-10 rounded-lg border border-border bg-background px-3 text-sm focus:ring-2 focus:ring-ring";
-
   return (
     <div className="space-y-8 max-w-2xl">
       <h1 className="text-2xl text-accent">Paramètres</h1>
-
-      {/* ───── 1. Profile ───── */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
-        <h2 className="text-lg text-accent font-serif font-normal">Mon profil</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-muted-foreground text-xs mb-0.5">Nom</p>
-            <p className="font-medium">{profile?.full_name || '—'}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs mb-0.5">Email</p>
-            <p className="font-medium">{profile?.email || user?.email || '—'}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs mb-0.5">Inscrit depuis</p>
-            <p className="font-medium">{profile?.created_at ? new Date(profile.created_at).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</p>
-          </div>
-        </div>
-        <Separator />
-        <Button variant="outline" onClick={handleLogout} className="text-destructive border-destructive/30 hover:bg-destructive/5">
-          <LogOut className="h-4 w-4 mr-2" />
-          Se déconnecter
-        </Button>
-      </div>
-
-      {/* ───── 2. Import format ───── */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
-        <h2 className="text-lg text-accent font-serif font-normal">Format d'import</h2>
-        <p className="text-sm text-muted-foreground">
-          L'outil détecte automatiquement le format de ton relevé bancaire. Si tu as des soucis, vérifie que ton fichier a bien des colonnes <span className="font-medium text-foreground">Date</span>, <span className="font-medium text-foreground">Libellé</span> et <span className="font-medium text-foreground">Montant</span>.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Séparateur décimal</Label>
-            <select value={decimalSep} onChange={(e) => saveDecimalSep(e.target.value)} className={selectClass}>
-              <option value=",">Virgule (1 234,56) — France</option>
-              <option value=".">Point (1,234.56) — US/UK</option>
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Format de date</Label>
-            <select value={dateFormat} onChange={(e) => saveDateFormat(e.target.value)} className={selectClass}>
-              <option value="DD/MM/YYYY">JJ/MM/AAAA (31/12/2026)</option>
-              <option value="MM/DD/YYYY">MM/JJ/AAAA (12/31/2026)</option>
-              <option value="YYYY-MM-DD">AAAA-MM-JJ (2026-12-31)</option>
-            </select>
-          </div>
-        </div>
-      </div>
 
       {/* ───── 3. My data ───── */}
       <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4 card-hover">
