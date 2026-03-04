@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Line, ComposedChart, CartesianGrid,
+  Treemap,
 } from 'recharts';
 import {
   fetchDashboardData,
@@ -200,6 +201,9 @@ export default function Dashboard() {
         </ResponsiveContainer>
       </div>
 
+      {/* Expense breakdown treemap */}
+      <ExpenseTreemap transactions={transactions} categories={categories} expense={expense} />
+
       {/* Top categories */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <TopCategoryCard title="Top dépenses" items={topExpenses} maxVal={topExpenses[0]?.total ?? 1} />
@@ -322,6 +326,116 @@ function TopCategoryCard({ title, items, maxVal }: { title: string; items: TopCa
                 }}
               />
             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---- Treemap custom content ---- */
+
+interface TreemapItem {
+  name: string;
+  emoji: string;
+  color: string;
+  value: number;
+  pct: number;
+}
+
+function TreemapContent(props: any) {
+  const { x, y, width, height, name, emoji, pct, color, value } = props;
+  if (width < 4 || height < 4) return null;
+
+  const isSmall = width < 90 || height < 50;
+
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={8}
+        ry={8}
+        style={{ fill: `#${color}`, stroke: '#fff', strokeWidth: 2, opacity: 0.85 }}
+      />
+      {isSmall ? (
+        <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="central" fontSize={16}>
+          {emoji}
+        </text>
+      ) : (
+        <>
+          <text x={x + width / 2} y={y + height / 2 - 14} textAnchor="middle" dominantBaseline="central" fontSize={15}>
+            {emoji}
+          </text>
+          <text x={x + width / 2} y={y + height / 2 + 4} textAnchor="middle" dominantBaseline="central" fontSize={11} fill="#fff" fontWeight={500}>
+            {name.length > width / 7 ? name.slice(0, Math.floor(width / 7)) + '…' : name}
+          </text>
+          <text x={x + width / 2} y={y + height / 2 + 20} textAnchor="middle" dominantBaseline="central" fontSize={10} fill="rgba(255,255,255,0.8)" fontFamily="IBM Plex Mono, monospace">
+            {formatEur(value)} · {pct}%
+          </text>
+        </>
+      )}
+    </g>
+  );
+}
+
+function ExpenseTreemap({ transactions, categories, expense }: { transactions: Transaction[]; categories: Category[]; expense: number }) {
+  const catMap = new Map(categories.map((c) => [c.id, c]));
+
+  // Aggregate expenses by category
+  const totals = new Map<string, number>();
+  for (const tx of transactions) {
+    if (tx.amount >= 0 || !tx.category_id) continue;
+    const cur = totals.get(tx.category_id) ?? 0;
+    totals.set(tx.category_id, cur + Math.abs(tx.amount));
+  }
+
+  const items: TreemapItem[] = Array.from(totals.entries())
+    .map(([catId, total]) => {
+      const cat = catMap.get(catId);
+      return {
+        name: cat?.name ?? 'Autre',
+        emoji: cat?.emoji ?? '❓',
+        color: cat?.color ?? '95A5A6',
+        value: total,
+        pct: expense > 0 ? Math.round((total / expense) * 100) : 0,
+      };
+    })
+    .sort((a, b) => b.value - a.value);
+
+  if (items.length === 0) {
+    return (
+      <div className="bg-card rounded-[20px] shadow-soft p-8 text-center">
+        <h2 className="text-lg text-accent mb-2">Où part ton argent ce mois-ci</h2>
+        <Link to="/categories" className="text-sm text-primary hover:underline">
+          Catégorise tes transactions pour voir la répartition →
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
+      <h2 className="text-lg text-accent">Où part ton argent ce mois-ci</h2>
+
+      <ResponsiveContainer width="100%" height={260}>
+        <Treemap
+          data={items}
+          dataKey="value"
+          aspectRatio={4 / 3}
+          content={<TreemapContent />}
+        />
+      </ResponsiveContainer>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
+        {items.map((item) => (
+          <div key={item.name} className="flex items-center gap-1.5 text-xs">
+            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: `#${item.color}` }} />
+            <span>{item.emoji} {item.name}</span>
+            <span className="font-mono text-muted-foreground">{formatEur(item.value)}</span>
           </div>
         ))}
       </div>
