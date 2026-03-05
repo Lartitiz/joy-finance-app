@@ -5,112 +5,47 @@ import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight } fr
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Line, ComposedChart, CartesianGrid,
-  Treemap,
+  ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Line, CartesianGrid,
+  Treemap, LineChart, ReferenceLine, Cell, ReferenceArea,
 } from 'recharts';
 import {
-  fetchDashboardData,
-  computeVariation,
-  formatEur,
-  buildChartData,
-  computeTopCategories,
-  type Transaction,
-  type Category,
-  type MonthlyObjective,
-  type ChartMonth,
-  type TopCategory,
+  fetchDashboardData, computeKpis, computeVariation, formatEur,
+  buildMonthlyChartData, computeQuarterlyBreakdown, computeTopCategories,
+  buildSparklineData, getObjectiveTarget, MONTH_NAMES,
+  type PeriodType, type Transaction, type Category, type ChartMonth,
+  type TopCategory, type QuarterBreakdown, type DashboardData,
 } from '@/lib/dashboard-utils';
-
-const MONTH_NAMES = [
-  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
-];
 
 export default function Dashboard() {
   const { user } = useAuth();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [period, setPeriod] = useState<PeriodType>('year');
+  const [quarterVal, setQuarterVal] = useState(Math.ceil((now.getMonth() + 1) / 3));
+  const [monthVal, setMonthVal] = useState(now.getMonth() + 1);
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [objective, setObjective] = useState<MonthlyObjective | null>(null);
-  const [chartData, setChartData] = useState<ChartMonth[]>([]);
-  const [revenue, setRevenue] = useState(0);
-  const [expense, setExpense] = useState(0);
-  const [prevRevenue, setPrevRevenue] = useState(0);
-  const [prevExpense, setPrevExpense] = useState(0);
-  const [topExpenses, setTopExpenses] = useState<TopCategory[]>([]);
-  const [topRevenues, setTopRevenues] = useState<TopCategory[]>([]);
+  const periodValue = period === 'quarter' ? quarterVal : period === 'month' ? monthVal : 0;
+
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const data = await fetchDashboardData(user.id, year, month);
-
-    setTransactions(data.transactions);
-    setCategories(data.categories);
-    setObjective(data.objective);
-
-    const rev = data.transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-    const exp = data.transactions.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-    setRevenue(rev);
-    setExpense(exp);
-
-    const pRev = data.prevTransactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-    const pExp = data.prevTransactions.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-    setPrevRevenue(pRev);
-    setPrevExpense(pExp);
-
-    setChartData(buildChartData(data.chartTransactions, data.chartObjectives, year, month));
-    setTopExpenses(computeTopCategories(data.transactions, data.categories, 'expense'));
-    setTopRevenues(computeTopCategories(data.transactions, data.categories, 'revenue'));
-
+    const d = await fetchDashboardData(user.id, year, period, periodValue);
+    setData(d);
     setLoading(false);
-  }, [user, year, month]);
+  }, [user, year, period, periodValue]);
 
   useEffect(() => { load(); }, [load]);
 
-  const goMonth = (dir: -1 | 1) => {
-    let m = month + dir;
-    let y = year;
-    if (m < 1) { m = 12; y--; }
-    if (m > 12) { m = 1; y++; }
-    setMonth(m);
-    setYear(y);
-  };
-
-  const net = revenue - expense;
-  const objPct = objective?.revenue_target ? Math.min(100, Math.round((revenue / objective.revenue_target) * 100)) : null;
-
-  // Empty state
-  if (!loading && transactions.length === 0) {
-    return (
-      <div className="space-y-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl text-accent">Tableau de bord</h1>
-          <MonthSelector month={month} year={year} onNavigate={goMonth} />
-        </div>
-        <div className="bg-card rounded-[20px] shadow-soft p-16 flex flex-col items-center gap-4 text-center">
-          <span className="text-6xl">📊</span>
-          <h2 className="text-xl text-accent">Ton dashboard se remplira dès que tu importeras tes premières données</h2>
-          <p className="text-muted-foreground max-w-md">Importe un relevé bancaire CSV ou Excel pour commencer à suivre tes finances.</p>
-          <Button asChild size="lg" className="mt-2">
-            <Link to="/import">Importer mes données →</Link>
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
+  if (loading || !data) {
     return (
       <div className="space-y-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl text-accent">Tableau de bord</h1>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="bg-card rounded-[20px] shadow-soft p-6 h-[140px] animate-pulse" />
           ))}
@@ -119,41 +54,62 @@ export default function Dashboard() {
     );
   }
 
-  const catMap = new Map(categories.map((c) => [c.id, c]));
+  // Empty state
+  if (data.allYearTransactions.length === 0 && data.transactions.length === 0) {
+    return (
+      <div className="space-y-8">
+        <Header year={year} setYear={setYear} period={period} setPeriod={setPeriod}
+          quarterVal={quarterVal} setQuarterVal={setQuarterVal}
+          monthVal={monthVal} setMonthVal={setMonthVal} />
+        <div className="bg-card rounded-[20px] shadow-soft p-16 flex flex-col items-center gap-4 text-center">
+          <span className="text-6xl">📊</span>
+          <h2 className="text-xl text-accent">Ton tableau de bord est prêt à se remplir !</h2>
+          <p className="text-muted-foreground max-w-md">Importe un relevé bancaire pour commencer à suivre tes finances.</p>
+          <Button asChild size="lg" className="mt-2">
+            <Link to="/import">Importer mes données →</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const kpis = computeKpis(data.transactions, data.prevTransactions);
+  const quarterlyBreakdown = computeQuarterlyBreakdown(data.allYearTransactions, year, data.quarterlyObjectives, data.offers);
+  const chartData = buildMonthlyChartData(data.allYearTransactions, year, data.quarterlyObjectives, data.offers);
+  const objTarget = getObjectiveTarget(period, periodValue, data.annualObjective, quarterlyBreakdown);
+  const objPct = objTarget ? Math.min(100, Math.round((kpis.revenue / objTarget) * 100)) : null;
+  const catMap = new Map(data.categories.map(c => [c.id, c]));
+  const topRevenues = computeTopCategories(data.transactions, data.categories, 'revenue', 10);
+  const topExpenses = computeTopCategories(data.transactions, data.categories, 'expense', 10);
+  const totalBalance = data.bankAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
+  const sparkline = buildSparklineData(data.sparklineData);
+
+  const yearTotalRevenue = data.allYearTransactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const annualTarget = data.annualObjective?.revenue_target ?? 0;
+  const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearTotalRevenue / annualTarget) * 100)) : 0;
+
+  const periodLabel = period === 'year' ? `${year}` : period === 'quarter' ? `T${quarterVal} ${year}` : `${MONTH_NAMES[monthVal - 1]} ${year}`;
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl text-accent">Tableau de bord</h1>
-        <MonthSelector month={month} year={year} onNavigate={goMonth} />
-      </div>
+      <Header year={year} setYear={setYear} period={period} setPeriod={setPeriod}
+        quarterVal={quarterVal} setQuarterVal={setQuarterVal}
+        monthVal={monthVal} setMonthVal={setMonthVal} />
 
-      {/* KPI cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="Revenus"
-          value={formatEur(revenue)}
-          variation={computeVariation(revenue, prevRevenue)}
-          positive={revenue >= prevRevenue}
-          icon={<TrendingUp className="h-5 w-5 text-green-500" />}
-        />
-        <KpiCard
-          label="Dépenses"
-          value={formatEur(expense)}
-          variation={computeVariation(expense, prevExpense)}
-          positive={expense <= prevExpense}
-          icon={<TrendingDown className="h-5 w-5 text-destructive" />}
-        />
-        <KpiCard
-          label="Résultat net"
-          value={formatEur(net)}
-          variation=""
-          positive={net >= 0}
+        <KpiCard label="CA cumulé" value={formatEur(kpis.revenue)}
+          variation={`${computeVariation(kpis.revenue, kpis.prevRevenue)} vs ${year - 1}`}
+          positive={kpis.revenue >= kpis.prevRevenue}
+          icon={<TrendingUp className="h-5 w-5 text-green-500" />} />
+        <KpiCard label="Dépenses" value={formatEur(kpis.expense)}
+          variation={`${computeVariation(kpis.expense, kpis.prevExpense)} vs ${year - 1}`}
+          positive={kpis.expense <= kpis.prevExpense}
+          icon={<TrendingDown className="h-5 w-5 text-destructive" />} />
+        <KpiCard label="Résultat net" value={formatEur(kpis.net)}
+          variation="" positive={kpis.net >= 0}
           icon={<Scale className="h-5 w-5 text-primary" />}
-          valueColor={net >= 0 ? 'text-green-600' : 'text-destructive'}
-        />
-        {/* Objective card */}
+          valueColor={kpis.net >= 0 ? 'text-green-600' : 'text-destructive'} />
         <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3 card-hover">
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">vs Objectif</span>
@@ -166,114 +122,111 @@ export default function Dashboard() {
             </>
           ) : (
             <Link to="/objectifs" className="text-sm text-primary hover:underline block pt-2">
-              Pas d'objectif défini →
+              Définir un objectif →
             </Link>
           )}
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="bg-card rounded-[20px] shadow-soft p-6">
-        <h2 className="text-lg text-accent mb-4">Revenus & Dépenses</h2>
-        <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={chartData} barGap={4}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(340 20% 92%)" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
-            <Tooltip
-              contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
-              formatter={(value: number, name: string) => [formatEur(value), name === 'revenue' ? 'Revenus' : name === 'expense' ? 'Dépenses' : 'Net']}
-              labelFormatter={(label: string) => label}
-            />
-            <Bar dataKey="revenue" fill="hsl(340 96% 61%)" radius={[6, 6, 0, 0]} name="revenue" />
-            <Bar dataKey="expense" fill="#FFA7C6" radius={[6, 6, 0, 0]} name="expense" />
-            <Line type="monotone" dataKey="net" stroke="hsl(0 0% 10%)" strokeWidth={2} dot={false} name="net" />
-            {chartData.some((d) => d.objectiveRevenue) && (
-              <ReferenceLine
-                y={chartData.find((d) => d.objectiveRevenue)?.objectiveRevenue}
-                stroke="#FFE561"
-                strokeDasharray="6 4"
-                strokeWidth={2}
-                label={{ value: 'Objectif', position: 'right', fill: '#b8a020', fontSize: 11 }}
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Annual progress bar (year view only) */}
+      {period === 'year' && annualTarget > 0 && (
+        <AnnualProgressSection
+          yearTotalRevenue={yearTotalRevenue} annualTarget={annualTarget} annualPct={annualPct}
+          quarterlyBreakdown={quarterlyBreakdown}
+          onQuarterClick={(q) => { setPeriod('quarter'); setQuarterVal(q); }}
+        />
+      )}
 
-      {/* Expense breakdown treemap */}
-      <ExpenseTreemap transactions={transactions} categories={categories} expense={expense} />
+      {/* Revenue treemap */}
+      <TreemapSection
+        title={period === 'year' ? "D'où viennent tes revenus" : `Revenus ${periodLabel}`}
+        transactions={data.transactions} categories={data.categories} type="revenue" />
 
-      {/* Top categories */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <TopCategoryCard title="Top dépenses" items={topExpenses} maxVal={topExpenses[0]?.total ?? 1} />
-        <TopCategoryCard title="Top revenus" items={topRevenues} maxVal={topRevenues[0]?.total ?? 1} />
-      </div>
+      {/* Monthly chart */}
+      <MonthlyChart chartData={chartData} period={period} quarterVal={quarterVal} monthVal={monthVal} />
+
+      {/* Expense treemap */}
+      <TreemapSection
+        title={`Où part ton argent${period !== 'year' ? ` · ${periodLabel}` : ''}`}
+        transactions={data.transactions} categories={data.categories} type="expense" />
+
+      {/* Treasury */}
+      <TreasuryCard totalBalance={totalBalance} sparkline={sparkline} hasBankAccounts={data.bankAccounts.length > 0} />
 
       {/* Latest transactions */}
-      <div className="bg-card rounded-[20px] shadow-soft overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4">
-          <h2 className="text-lg text-accent">Dernières transactions</h2>
+      <LatestTransactions transactions={data.transactions} catMap={catMap} />
+    </div>
+  );
+}
+
+/* ═══════════ Sub-components ═══════════ */
+
+function Header({ year, setYear, period, setPeriod, quarterVal, setQuarterVal, monthVal, setMonthVal }: {
+  year: number; setYear: (y: number) => void;
+  period: PeriodType; setPeriod: (p: PeriodType) => void;
+  quarterVal: number; setQuarterVal: (q: number) => void;
+  monthVal: number; setMonthVal: (m: number) => void;
+}) {
+  const goMonth = (dir: -1 | 1) => {
+    let m = monthVal + dir;
+    if (m < 1) { m = 12; setYear(year - 1); }
+    if (m > 12) { m = 1; setYear(year + 1); }
+    setMonthVal(m);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <h1 className="text-2xl text-accent">Tableau de bord</h1>
+      <div className="flex flex-col items-end gap-2">
+        {/* Year selector */}
+        <div className="flex items-center gap-2 bg-card rounded-full shadow-soft px-1 py-1">
+          <button onClick={() => setYear(year - 1)} className="p-2 rounded-full hover:bg-muted transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-medium min-w-[60px] text-center">{year}</span>
+          <button onClick={() => setYear(year + 1)} className="p-2 rounded-full hover:bg-muted transition-colors">
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Date</th>
-                <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Libellé</th>
-                <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Catégorie</th>
-                <th className="text-right px-5 py-2.5 text-xs text-muted-foreground font-medium">Montant</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.slice(0, 10).map((tx) => {
-                const cat = tx.category_id ? catMap.get(tx.category_id) : null;
-                return (
-                  <tr key={tx.id} className="border-t border-border">
-                    <td className="px-5 py-2.5 font-mono text-xs">{tx.date}</td>
-                    <td className="px-5 py-2.5 max-w-[240px] truncate">{tx.label}</td>
-                    <td className="px-5 py-2.5 text-xs">
-                      {cat ? (
-                        <span>{cat.emoji} {cat.name}</span>
-                      ) : (
-                        <span className="text-muted-foreground">Non catégorisé</span>
-                      )}
-                    </td>
-                    <td className={`px-5 py-2.5 text-right font-mono text-xs ${tx.amount >= 0 ? 'text-green-600' : 'text-destructive'}`}>
-                      {tx.amount >= 0 ? '+' : ''}{formatEur(tx.amount)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {/* Period toggle */}
+        <div className="flex items-center gap-1 bg-card rounded-full shadow-soft px-1 py-1">
+          {(['year', 'quarter', 'month'] as const).map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${period === p ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+              {p === 'year' ? 'Année' : p === 'quarter' ? 'Trimestre' : 'Mois'}
+            </button>
+          ))}
         </div>
+        {/* Sub-selectors */}
+        {period === 'quarter' && (
+          <div className="flex gap-1">
+            {[1, 2, 3, 4].map(q => (
+              <button key={q} onClick={() => setQuarterVal(q)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${quarterVal === q ? 'bg-primary text-primary-foreground' : 'bg-card shadow-soft hover:bg-muted'}`}>
+                T{q}
+              </button>
+            ))}
+          </div>
+        )}
+        {period === 'month' && (
+          <div className="flex items-center gap-2 bg-card rounded-full shadow-soft px-1 py-1">
+            <button onClick={() => goMonth(-1)} className="p-2 rounded-full hover:bg-muted transition-colors">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-xs font-medium min-w-[120px] text-center">
+              {MONTH_NAMES[monthVal - 1]} {year}
+            </span>
+            <button onClick={() => goMonth(1)} className="p-2 rounded-full hover:bg-muted transition-colors">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/* ---- Sub-components ---- */
-
-function MonthSelector({ month, year, onNavigate }: { month: number; year: number; onNavigate: (dir: -1 | 1) => void }) {
-  return (
-    <div className="flex items-center gap-2 bg-card rounded-full shadow-soft px-1 py-1">
-      <button onClick={() => onNavigate(-1)} className="p-2 rounded-full hover:bg-muted transition-colors">
-        <ChevronLeft className="h-4 w-4" />
-      </button>
-      <span className="text-sm font-medium min-w-[140px] text-center">
-        {MONTH_NAMES[month - 1]} {year}
-      </span>
-      <button onClick={() => onNavigate(1)} className="p-2 rounded-full hover:bg-muted transition-colors">
-        <ChevronRight className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
-function KpiCard({
-  label, value, variation, positive, icon, valueColor,
-}: {
+function KpiCard({ label, value, variation, positive, icon, valueColor }: {
   label: string; value: string; variation: string; positive: boolean; icon: React.ReactNode; valueColor?: string;
 }) {
   return (
@@ -285,90 +238,79 @@ function KpiCard({
       <p className={`text-2xl lg:text-3xl font-mono animate-count ${valueColor ?? ''}`}>{value}</p>
       {variation && (
         <span className={`text-xs font-mono ${positive ? 'text-green-600' : 'text-destructive'}`}>
-          {variation} vs mois précédent
+          {variation}
         </span>
       )}
     </div>
   );
 }
 
-function TopCategoryCard({ title, items, maxVal }: { title: string; items: TopCategory[]; maxVal: number }) {
-  if (items.length === 0) {
-    return (
-      <div className="bg-card rounded-[20px] shadow-soft p-6 flex flex-col items-center justify-center gap-2 min-h-[200px]">
-        <p className="text-muted-foreground text-sm">{title}</p>
-        <Link to="/import" className="text-sm text-primary hover:underline">
-          Importe tes données pour voir tes stats →
-        </Link>
-      </div>
-    );
-  }
+/* ─── Annual Progress ─── */
+
+function AnnualProgressSection({ yearTotalRevenue, annualTarget, annualPct, quarterlyBreakdown, onQuarterClick }: {
+  yearTotalRevenue: number; annualTarget: number; annualPct: number;
+  quarterlyBreakdown: QuarterBreakdown[];
+  onQuarterClick: (q: number) => void;
+}) {
+  const now = new Date();
+  const currentQ = Math.ceil((now.getMonth() + 1) / 3);
 
   return (
-    <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-4 card-hover">
-      <h3 className="text-sm text-accent font-medium">{title}</h3>
-      <div className="space-y-3">
-        {items.map((item) => (
-          <div key={item.categoryId} className="space-y-1">
-            <div className="flex items-center justify-between text-sm">
-              <span>
-                {item.emoji && <span className="mr-1.5">{item.emoji}</span>}
-                {item.name}
-              </span>
-              <span className="font-mono text-xs">{formatEur(item.total)}</span>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full animate-progress"
-                style={{
-                  width: `${Math.max(4, (item.total / maxVal) * 100)}%`,
-                  backgroundColor: `#${item.color}`,
-                }}
-              />
-            </div>
-          </div>
-        ))}
+    <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
+      <h2 className="text-lg text-accent">Progression vers l'objectif annuel</h2>
+      {/* Big progress bar */}
+      <div className="relative">
+        <div className="h-6 bg-muted rounded-full overflow-hidden">
+          <div className="h-full rounded-full bg-primary transition-all duration-700"
+            style={{ width: `${annualPct}%` }} />
+        </div>
+        <div className="flex justify-between mt-1 text-xs font-mono text-muted-foreground">
+          <span>{formatEur(yearTotalRevenue)}</span>
+          <span>{formatEur(annualTarget)}</span>
+        </div>
+      </div>
+      {/* Quarter segments */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {quarterlyBreakdown.map(qb => {
+          const status = qb.quarter < currentQ ? (qb.realRevenue >= qb.objectiveRevenue ? 'green' : 'red') :
+            qb.quarter === currentQ ? 'orange' : 'gray';
+          const colors: Record<string, string> = {
+            green: 'border-green-400 bg-green-50', red: 'border-destructive/30 bg-red-50',
+            orange: 'border-secondary bg-yellow-50', gray: 'border-border bg-muted/30',
+          };
+          return (
+            <button key={qb.quarter} onClick={() => onQuarterClick(qb.quarter)}
+              className={`rounded-2xl border-2 p-3 text-left transition-colors hover:shadow-md ${colors[status]}`}>
+              <div className="text-sm font-medium text-accent">T{qb.quarter}</div>
+              <div className="font-mono text-sm mt-1">{formatEur(qb.realRevenue)}</div>
+              {qb.objectiveRevenue > 0 && (
+                <div className="text-xs text-muted-foreground font-mono">obj. {formatEur(qb.objectiveRevenue)}</div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-/* ---- Treemap custom content ---- */
+/* ─── Treemap section (reusable for revenue & expense) ─── */
 
-interface TreemapItem {
-  name: string;
-  emoji: string;
-  color: string;
-  value: number;
-  pct: number;
-}
+interface TreemapItem { name: string; emoji: string; color: string; value: number; pct: number; }
 
 function TreemapContent(props: any) {
   const { x, y, width, height, name, emoji, pct, color, value } = props;
   if (!width || !height || width < 4 || height < 4 || !name) return null;
-
   const isSmall = width < 90 || height < 50;
-
   return (
     <g>
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        rx={8}
-        ry={8}
-        style={{ fill: `#${color}`, stroke: '#fff', strokeWidth: 2, opacity: 0.85 }}
-      />
+      <rect x={x} y={y} width={width} height={height} rx={8} ry={8}
+        style={{ fill: `#${color}`, stroke: '#fff', strokeWidth: 2, opacity: 0.85 }} />
       {isSmall ? (
-        <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="central" fontSize={16}>
-          {emoji}
-        </text>
+        <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="central" fontSize={16}>{emoji}</text>
       ) : (
         <>
-          <text x={x + width / 2} y={y + height / 2 - 14} textAnchor="middle" dominantBaseline="central" fontSize={15}>
-            {emoji}
-          </text>
+          <text x={x + width / 2} y={y + height / 2 - 14} textAnchor="middle" dominantBaseline="central" fontSize={15}>{emoji}</text>
           <text x={x + width / 2} y={y + height / 2 + 4} textAnchor="middle" dominantBaseline="central" fontSize={11} fill="#fff" fontWeight={500}>
             {name.length > width / 7 ? name.slice(0, Math.floor(width / 7)) + '…' : name}
           </text>
@@ -381,36 +323,35 @@ function TreemapContent(props: any) {
   );
 }
 
-function ExpenseTreemap({ transactions, categories, expense }: { transactions: Transaction[]; categories: Category[]; expense: number }) {
-  const catMap = new Map(categories.map((c) => [c.id, c]));
-
-  // Aggregate expenses by category
+function TreemapSection({ title, transactions, categories, type }: {
+  title: string; transactions: Transaction[]; categories: Category[]; type: 'revenue' | 'expense';
+}) {
+  const catMap = new Map(categories.map(c => [c.id, c]));
   const totals = new Map<string, number>();
+  const total = { sum: 0 };
+
   for (const tx of transactions) {
-    if (tx.amount >= 0 || !tx.category_id) continue;
-    const cur = totals.get(tx.category_id) ?? 0;
-    totals.set(tx.category_id, cur + Math.abs(tx.amount));
+    if (!tx.category_id) continue;
+    if (type === 'revenue' && tx.amount <= 0) continue;
+    if (type === 'expense' && tx.amount >= 0) continue;
+    const abs = Math.abs(tx.amount);
+    total.sum += abs;
+    totals.set(tx.category_id, (totals.get(tx.category_id) ?? 0) + abs);
   }
 
   const items: TreemapItem[] = Array.from(totals.entries())
-    .map(([catId, total]) => {
+    .map(([catId, val]) => {
       const cat = catMap.get(catId);
-      return {
-        name: cat?.name ?? 'Autre',
-        emoji: cat?.emoji ?? '❓',
-        color: cat?.color ?? '95A5A6',
-        value: total,
-        pct: expense > 0 ? Math.round((total / expense) * 100) : 0,
-      };
+      return { name: cat?.name ?? 'Autre', emoji: cat?.emoji ?? '❓', color: cat?.color ?? '95A5A6', value: val, pct: total.sum > 0 ? Math.round((val / total.sum) * 100) : 0 };
     })
     .sort((a, b) => b.value - a.value);
 
   if (items.length === 0) {
     return (
       <div className="bg-card rounded-[20px] shadow-soft p-8 text-center">
-        <h2 className="text-lg text-accent mb-2">Où part ton argent ce mois-ci</h2>
+        <h2 className="text-lg text-accent mb-2">{title}</h2>
         <Link to="/categories" className="text-sm text-primary hover:underline">
-          Catégorise tes transactions pour voir la répartition →
+          {type === 'revenue' ? 'Catégorise tes revenus pour voir la répartition →' : 'Catégorise tes transactions pour voir la répartition →'}
         </Link>
       </div>
     );
@@ -418,26 +359,164 @@ function ExpenseTreemap({ transactions, categories, expense }: { transactions: T
 
   return (
     <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
-      <h2 className="text-lg text-accent">Où part ton argent ce mois-ci</h2>
-
-      <ResponsiveContainer width="100%" height={260}>
-        <Treemap
-          data={items}
-          dataKey="value"
-          aspectRatio={4 / 3}
-          content={<TreemapContent />}
-        />
+      <h2 className="text-lg text-accent">{title}</h2>
+      <ResponsiveContainer width="100%" height={240}>
+        <Treemap data={items} dataKey="value" aspectRatio={4 / 3} content={<TreemapContent />} />
       </ResponsiveContainer>
-
-      {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
-        {items.map((item) => (
+        {items.map(item => (
           <div key={item.name} className="flex items-center gap-1.5 text-xs">
             <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: `#${item.color}` }} />
             <span>{item.emoji} {item.name}</span>
             <span className="font-mono text-muted-foreground">{formatEur(item.value)}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Monthly chart ─── */
+
+function MonthlyChart({ chartData, period, quarterVal, monthVal }: {
+  chartData: ChartMonth[]; period: PeriodType; quarterVal: number; monthVal: number;
+}) {
+  // Determine highlighted range
+  let hlStart: number | null = null;
+  let hlEnd: number | null = null;
+  if (period === 'quarter') {
+    hlStart = (quarterVal - 1) * 3; // 0-indexed in chart
+    hlEnd = hlStart + 2;
+  } else if (period === 'month') {
+    hlStart = monthVal - 1;
+    hlEnd = hlStart;
+  }
+
+  return (
+    <div className="bg-card rounded-[20px] shadow-soft p-6">
+      <h2 className="text-lg text-accent mb-4">Évolution mois par mois</h2>
+      <ResponsiveContainer width="100%" height={300}>
+        <ComposedChart data={chartData} barGap={4}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(340 20% 92%)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false}
+            tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : `${v}`} />
+          <Tooltip
+            contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
+            formatter={(value: number, name: string) => {
+              const labels: Record<string, string> = { revenue: 'Revenus', expense: 'Dépenses', net: 'Net', objectiveMonthly: 'Objectif' };
+              return [formatEur(value), labels[name] ?? name];
+            }}
+          />
+          {/* Highlight reference area */}
+          {hlStart !== null && hlEnd !== null && (
+            <ReferenceArea x1={chartData[hlStart]?.label} x2={chartData[hlEnd]?.label}
+              fill="hsl(340 96% 61%)" fillOpacity={0.06} />
+          )}
+          <Bar dataKey="revenue" fill="hsl(340 96% 61%)" radius={[6, 6, 0, 0]} name="revenue">
+            {chartData.map((entry, i) => (
+              <Cell key={i} fillOpacity={entry.hasFutureData ? 0 : entry.isCurrent ? 1 : 0.75}
+                fill={entry.hasFutureData ? 'transparent' : 'hsl(340 96% 61%)'} />
+            ))}
+          </Bar>
+          <Bar dataKey="expense" fill="#FFA7C6" radius={[6, 6, 0, 0]} name="expense">
+            {chartData.map((entry, i) => (
+              <Cell key={i} fillOpacity={entry.hasFutureData ? 0 : entry.isCurrent ? 1 : 0.75}
+                fill={entry.hasFutureData ? 'transparent' : '#FFA7C6'} />
+            ))}
+          </Bar>
+          <Line type="monotone" dataKey="net" stroke="hsl(0 0% 10%)" strokeWidth={2} dot={false} name="net"
+            connectNulls={false} />
+          {chartData.some(d => d.objectiveMonthly) && (
+            <Line type="stepAfter" dataKey="objectiveMonthly" stroke="#FFE561" strokeWidth={2}
+              strokeDasharray="6 4" dot={false} name="objectiveMonthly" />
+          )}
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── Treasury card ─── */
+
+function TreasuryCard({ totalBalance, sparkline, hasBankAccounts }: {
+  totalBalance: number; sparkline: { month: string; net: number }[]; hasBankAccounts: boolean;
+}) {
+  if (!hasBankAccounts) {
+    return (
+      <div className="bg-card rounded-[20px] shadow-soft p-5 text-center">
+        <h2 className="text-lg text-accent mb-2">Trésorerie</h2>
+        <Link to="/tresorerie" className="text-sm text-primary hover:underline">Ajoute un compte bancaire →</Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card rounded-[20px] shadow-soft p-5 card-hover">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-sm text-muted-foreground mb-1">Trésorerie</h2>
+          <p className={`text-3xl font-mono ${totalBalance >= 0 ? 'text-green-600' : 'text-destructive'}`}>
+            {formatEur(totalBalance)}
+          </p>
+        </div>
+        {sparkline.length > 1 && (
+          <div className="w-[140px] h-[40px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={sparkline}>
+                <Line type="monotone" dataKey="net" stroke="hsl(340 96% 61%)" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <Link to="/tresorerie" className="text-sm text-primary hover:underline whitespace-nowrap">
+          Voir le détail →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Latest transactions ─── */
+
+function LatestTransactions({ transactions, catMap }: {
+  transactions: Transaction[]; catMap: Map<string, Category>;
+}) {
+  if (transactions.length === 0) return null;
+
+  return (
+    <div className="bg-card rounded-[20px] shadow-soft overflow-hidden">
+      <div className="px-5 py-4">
+        <h2 className="text-lg text-accent">Dernières transactions</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Date</th>
+              <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Libellé</th>
+              <th className="text-left px-5 py-2.5 text-xs text-muted-foreground font-medium">Catégorie</th>
+              <th className="text-right px-5 py-2.5 text-xs text-muted-foreground font-medium">Montant</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactions.slice(0, 15).map(tx => {
+              const cat = tx.category_id ? catMap.get(tx.category_id) : null;
+              return (
+                <tr key={tx.id} className="border-t border-border">
+                  <td className="px-5 py-2.5 font-mono text-xs">{tx.date}</td>
+                  <td className="px-5 py-2.5 max-w-[240px] truncate">{tx.label}</td>
+                  <td className="px-5 py-2.5 text-xs">
+                    {cat ? <span>{cat.emoji} {cat.name}</span> : <span className="text-muted-foreground">Non catégorisé</span>}
+                  </td>
+                  <td className={`px-5 py-2.5 text-right font-mono text-xs ${tx.amount >= 0 ? 'text-green-600' : 'text-destructive'}`}>
+                    {tx.amount >= 0 ? '+' : ''}{formatEur(tx.amount)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
