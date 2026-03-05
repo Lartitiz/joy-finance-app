@@ -1,4 +1,9 @@
 import { supabase } from '@/integrations/supabase/client';
+import { computeAllQuarters, type Offer, type QuarterlyObjective } from './objectives-utils';
+
+/* ───── Types ───── */
+
+export type PeriodType = 'year' | 'quarter' | 'month';
 
 export interface Transaction {
   id: string;
@@ -18,141 +23,16 @@ export interface Category {
   type: string;
 }
 
-export interface MonthlyObjective {
+export interface AnnualObjective {
   id: string;
-  month: string;
-  revenue_target: number | null;
-  expense_budget: number | null;
+  year: number;
+  revenue_target: number;
 }
 
-export function getMonthRange(year: number, month: number) {
-  const start = `${year}-${String(month).padStart(2, '0')}-01`;
-  const nextMonth = month === 12 ? 1 : month + 1;
-  const nextYear = month === 12 ? year + 1 : year;
-  const end = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-  return { start, end };
-}
-
-export async function fetchDashboardData(userId: string, year: number, month: number) {
-  const { start, end } = getMonthRange(year, month);
-
-  // Previous month
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
-  const prev = getMonthRange(prevYear, prevMonth);
-
-  // 6 months ago for chart
-  const sixMonthsAgo = new Date(year, month - 7, 1);
-  const chartStart = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
-
-  const [txRes, prevTxRes, chartTxRes, catRes, objRes, objChartRes] = await Promise.all([
-    supabase
-      .from('transactions')
-      .select('id, date, label, amount, category_id, source, is_validated')
-      .eq('user_id', userId)
-      .gte('date', start)
-      .lt('date', end)
-      .order('date', { ascending: false }),
-    supabase
-      .from('transactions')
-      .select('amount')
-      .eq('user_id', userId)
-      .gte('date', prev.start)
-      .lt('date', prev.end),
-    supabase
-      .from('transactions')
-      .select('date, amount')
-      .eq('user_id', userId)
-      .gte('date', chartStart)
-      .lt('date', end),
-    supabase
-      .from('categories')
-      .select('id, name, emoji, color, type')
-      .eq('user_id', userId),
-    supabase
-      .from('monthly_objectives')
-      .select('id, month, revenue_target, expense_budget')
-      .eq('user_id', userId)
-      .eq('month', start)
-      .maybeSingle(),
-    supabase
-      .from('monthly_objectives')
-      .select('month, revenue_target')
-      .eq('user_id', userId)
-      .gte('month', chartStart)
-      .lt('month', end),
-  ]);
-
-  return {
-    transactions: (txRes.data ?? []) as Transaction[],
-    prevTransactions: (prevTxRes.data ?? []) as { amount: number }[],
-    chartTransactions: (chartTxRes.data ?? []) as { date: string; amount: number }[],
-    categories: (catRes.data ?? []) as Category[],
-    objective: objRes.data as MonthlyObjective | null,
-    chartObjectives: (objChartRes.data ?? []) as { month: string; revenue_target: number | null }[],
-  };
-}
-
-export function computeVariation(current: number, previous: number): string {
-  if (previous === 0) return current > 0 ? '+100%' : '—';
-  const pct = ((current - previous) / Math.abs(previous)) * 100;
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}%`;
-}
-
-export function formatEur(n: number): string {
-  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-}
-
-export interface ChartMonth {
-  label: string;
-  month: string;
-  revenue: number;
-  expense: number;
-  net: number;
-  objectiveRevenue?: number;
-}
-
-const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
-
-export function buildChartData(
-  chartTransactions: { date: string; amount: number }[],
-  chartObjectives: { month: string; revenue_target: number | null }[],
-  year: number,
-  month: number,
-): ChartMonth[] {
-  const months: ChartMonth[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(year, month - 1 - i, 1);
-    const m = d.getMonth() + 1;
-    const y = d.getFullYear();
-    const key = `${y}-${String(m).padStart(2, '0')}`;
-    months.push({
-      label: `${MONTH_LABELS[m - 1]} ${y}`,
-      month: key,
-      revenue: 0,
-      expense: 0,
-      net: 0,
-    });
-  }
-
-  for (const tx of chartTransactions) {
-    const key = tx.date.slice(0, 7); // YYYY-MM
-    const entry = months.find((m) => m.month === key);
-    if (!entry) continue;
-    if (tx.amount > 0) entry.revenue += tx.amount;
-    else entry.expense += Math.abs(tx.amount);
-  }
-
-  const objMap = new Map(chartObjectives.map((o) => [o.month.slice(0, 7), o.revenue_target]));
-
-  for (const m of months) {
-    m.net = m.revenue - m.expense;
-    const obj = objMap.get(m.month);
-    if (obj != null) m.objectiveRevenue = obj;
-  }
-
-  return months;
+export interface BankAccount {
+  id: string;
+  name: string;
+  current_balance: number | null;
 }
 
 export interface TopCategory {
@@ -163,13 +43,216 @@ export interface TopCategory {
   total: number;
 }
 
+export interface ChartMonth {
+  label: string;
+  monthNum: number; // 1-12
+  revenue: number;
+  expense: number;
+  net: number;
+  objectiveMonthly?: number;
+  isCurrent: boolean;
+  hasFutureData: boolean;
+}
+
+export interface QuarterBreakdown {
+  quarter: number;
+  realRevenue: number;
+  objectiveRevenue: number;
+}
+
+const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+export const MONTH_NAMES = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+];
+
+/* ───── Date range helpers ───── */
+
+export function getDateRange(year: number, period: PeriodType, periodValue: number): { start: string; end: string } {
+  if (period === 'year') {
+    return { start: `${year}-01-01`, end: `${year + 1}-01-01` };
+  }
+  if (period === 'quarter') {
+    const sm = (periodValue - 1) * 3 + 1;
+    const em = sm + 3;
+    const ey = em > 12 ? year + 1 : year;
+    const emAdj = em > 12 ? 1 : em;
+    return {
+      start: `${year}-${String(sm).padStart(2, '0')}-01`,
+      end: `${ey}-${String(emAdj).padStart(2, '0')}-01`,
+    };
+  }
+  // month
+  const nm = periodValue === 12 ? 1 : periodValue + 1;
+  const ny = periodValue === 12 ? year + 1 : year;
+  return {
+    start: `${year}-${String(periodValue).padStart(2, '0')}-01`,
+    end: `${ny}-${String(nm).padStart(2, '0')}-01`,
+  };
+}
+
+/* ───── Fetch all dashboard data ───── */
+
+export interface DashboardData {
+  transactions: Transaction[];
+  prevTransactions: Transaction[];
+  allYearTransactions: Transaction[];
+  categories: Category[];
+  annualObjective: AnnualObjective | null;
+  quarterlyObjectives: QuarterlyObjective[];
+  offers: Offer[];
+  bankAccounts: BankAccount[];
+  sparklineData: { date: string; amount: number }[];
+}
+
+export async function fetchDashboardData(
+  userId: string,
+  year: number,
+  period: PeriodType,
+  periodValue: number,
+): Promise<DashboardData> {
+  const { start, end } = getDateRange(year, period, periodValue);
+  const prevRange = getDateRange(year - 1, period, periodValue);
+  const yearRange = getDateRange(year, 'year', 0);
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  const sparkStart = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+
+  const [txRes, prevTxRes, allYearRes, catRes, annObjRes, qObjRes, offRes, bankRes, sparkRes] = await Promise.all([
+    supabase.from('transactions').select('id, date, label, amount, category_id, source, is_validated')
+      .eq('user_id', userId).gte('date', start).lt('date', end).order('date', { ascending: false }).limit(1000),
+    supabase.from('transactions').select('id, date, label, amount, category_id, source, is_validated')
+      .eq('user_id', userId).gte('date', prevRange.start).lt('date', prevRange.end).limit(1000),
+    supabase.from('transactions').select('id, date, label, amount, category_id, source, is_validated')
+      .eq('user_id', userId).gte('date', yearRange.start).lt('date', yearRange.end).limit(1000),
+    supabase.from('categories').select('id, name, emoji, color, type').eq('user_id', userId),
+    supabase.from('annual_objectives').select('id, year, revenue_target')
+      .eq('user_id', userId).eq('year', year).maybeSingle(),
+    supabase.from('quarterly_objectives').select('id, offer_id, year, quarter, target_new_clients')
+      .eq('user_id', userId).eq('year', year),
+    supabase.from('offers').select('id, name, emoji, unit_price, billing_type, recurring_duration, is_active, sort_order')
+      .eq('user_id', userId).eq('is_active', true),
+    supabase.from('bank_accounts').select('id, name, current_balance').eq('user_id', userId),
+    supabase.from('transactions').select('date, amount')
+      .eq('user_id', userId).gte('date', sparkStart).lt('date', yearRange.end),
+  ]);
+
+  return {
+    transactions: (txRes.data ?? []) as Transaction[],
+    prevTransactions: (prevTxRes.data ?? []) as Transaction[],
+    allYearTransactions: (allYearRes.data ?? []) as Transaction[],
+    categories: (catRes.data ?? []) as Category[],
+    annualObjective: annObjRes.data as AnnualObjective | null,
+    quarterlyObjectives: (qObjRes.data ?? []) as QuarterlyObjective[],
+    offers: (offRes.data ?? []) as unknown as Offer[],
+    bankAccounts: (bankRes.data ?? []) as BankAccount[],
+    sparklineData: (sparkRes.data ?? []) as { date: string; amount: number }[],
+  };
+}
+
+/* ───── KPI computation ───── */
+
+export function computeKpis(transactions: Transaction[], prevTransactions: Transaction[]) {
+  const revenue = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const expense = transactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+  const net = revenue - expense;
+  const prevRevenue = prevTransactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const prevExpense = prevTransactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+  return { revenue, expense, net, prevRevenue, prevExpense };
+}
+
+export function computeVariation(current: number, previous: number): string {
+  if (previous === 0) return current > 0 ? '+100%' : '—';
+  const pct = ((current - previous) / Math.abs(previous)) * 100;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
+
+export function formatEur(n: number): string {
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+/* ───── Quarterly breakdown (real revenue) ───── */
+
+export function computeQuarterlyBreakdown(
+  allYearTransactions: Transaction[],
+  year: number,
+  quarterlyObjectives: QuarterlyObjective[],
+  offers: Offer[],
+): QuarterBreakdown[] {
+  const quarters = computeAllQuarters(offers, quarterlyObjectives);
+  const result: QuarterBreakdown[] = [];
+
+  for (let q = 1; q <= 4; q++) {
+    const sm = (q - 1) * 3 + 1;
+    const months = [sm, sm + 1, sm + 2];
+    const realRevenue = allYearTransactions
+      .filter(t => {
+        if (t.amount <= 0) return false;
+        const m = parseInt(t.date.slice(5, 7), 10);
+        return months.includes(m);
+      })
+      .reduce((s, t) => s + t.amount, 0);
+
+    const qSummary = quarters.find(qs => qs.quarter === q);
+    result.push({
+      quarter: q,
+      realRevenue,
+      objectiveRevenue: qSummary?.totalProjected ?? 0,
+    });
+  }
+  return result;
+}
+
+/* ───── Monthly chart data (12 months) ───── */
+
+export function buildMonthlyChartData(
+  allYearTransactions: Transaction[],
+  year: number,
+  quarterlyObjectives: QuarterlyObjective[],
+  offers: Offer[],
+): ChartMonth[] {
+  const now = new Date();
+  const currentMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
+
+  // Compute objective per quarter
+  const quarters = computeAllQuarters(offers, quarterlyObjectives);
+  const objByQuarter = new Map<number, number>();
+  for (const q of quarters) {
+    objByQuarter.set(q.quarter, q.totalProjected);
+  }
+
+  const months: ChartMonth[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const q = Math.ceil(m / 3);
+    const qObj = objByQuarter.get(q) ?? 0;
+    const monthTxs = allYearTransactions.filter(t => parseInt(t.date.slice(5, 7), 10) === m);
+    const revenue = monthTxs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const expense = monthTxs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+    const hasFutureData = revenue === 0 && expense === 0 && (year > now.getFullYear() || (year === now.getFullYear() && m > currentMonth));
+
+    months.push({
+      label: MONTH_LABELS[m - 1],
+      monthNum: m,
+      revenue: hasFutureData ? 0 : revenue,
+      expense: hasFutureData ? 0 : expense,
+      net: hasFutureData ? 0 : revenue - expense,
+      objectiveMonthly: qObj > 0 ? Math.round(qObj / 3) : undefined,
+      isCurrent: m === currentMonth,
+      hasFutureData,
+    });
+  }
+  return months;
+}
+
+/* ───── Top categories ───── */
+
 export function computeTopCategories(
   transactions: Transaction[],
   categories: Category[],
   type: 'expense' | 'revenue',
   limit = 5,
 ): TopCategory[] {
-  const catMap = new Map(categories.map((c) => [c.id, c]));
+  const catMap = new Map(categories.map(c => [c.id, c]));
   const totals = new Map<string, number>();
 
   for (const tx of transactions) {
@@ -177,8 +260,7 @@ export function computeTopCategories(
     const isRevenue = tx.amount > 0;
     if (type === 'revenue' && !isRevenue) continue;
     if (type === 'expense' && isRevenue) continue;
-    const cur = totals.get(tx.category_id) ?? 0;
-    totals.set(tx.category_id, cur + Math.abs(tx.amount));
+    totals.set(tx.category_id, (totals.get(tx.category_id) ?? 0) + Math.abs(tx.amount));
   }
 
   return Array.from(totals.entries())
@@ -194,4 +276,38 @@ export function computeTopCategories(
         total,
       };
     });
+}
+
+/* ───── Sparkline data (monthly net for last 6 months) ───── */
+
+export function buildSparklineData(sparklineRaw: { date: string; amount: number }[]): { month: string; net: number }[] {
+  const byMonth = new Map<string, number>();
+  for (const tx of sparklineRaw) {
+    const key = tx.date.slice(0, 7);
+    byMonth.set(key, (byMonth.get(key) ?? 0) + tx.amount);
+  }
+  return Array.from(byMonth.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, net]) => ({ month, net }));
+}
+
+/* ───── Objective target for the card ───── */
+
+export function getObjectiveTarget(
+  period: PeriodType,
+  periodValue: number,
+  annualObjective: AnnualObjective | null,
+  quarterlyBreakdown: QuarterBreakdown[],
+): number | null {
+  if (period === 'year') {
+    return annualObjective?.revenue_target ?? null;
+  }
+  if (period === 'quarter') {
+    const q = quarterlyBreakdown.find(qb => qb.quarter === periodValue);
+    return q && q.objectiveRevenue > 0 ? q.objectiveRevenue : null;
+  }
+  // month: approximate as quarter / 3
+  const q = Math.ceil(periodValue / 3);
+  const qb = quarterlyBreakdown.find(qb2 => qb2.quarter === q);
+  return qb && qb.objectiveRevenue > 0 ? Math.round(qb.objectiveRevenue / 3) : null;
 }
