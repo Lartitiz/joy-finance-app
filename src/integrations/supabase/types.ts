@@ -217,6 +217,81 @@ export type Database = {
         }
         Relationships: []
       }
+      monthly_signed_revenue: {
+        Row: {
+          created_at: string
+          id: string
+          month: number
+          total_signed: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          month: number
+          total_signed?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          month?: number
+          total_signed?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
+      monthly_signed_revenue_details: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          label: string | null
+          monthly_signed_id: string
+          offer_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          id?: string
+          label?: string | null
+          monthly_signed_id: string
+          offer_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          label?: string | null
+          monthly_signed_id?: string
+          offer_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_signed_revenue_details_monthly_signed_id_fkey"
+            columns: ["monthly_signed_id"]
+            isOneToOne: false
+            referencedRelation: "monthly_signed_revenue"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_signed_revenue_details_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "offers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       offers: {
         Row: {
           billing_type: string
