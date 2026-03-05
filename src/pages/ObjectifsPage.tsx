@@ -5,10 +5,9 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { ChevronLeft, ChevronRight, Save, Plus, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Plus, ChevronDown, ChevronUp, Trash2, Info } from 'lucide-react';
 import { formatEur } from '@/lib/dashboard-utils';
-import { InvoiceModal } from '@/components/objectifs/InvoiceModal';
-import { InvoiceDetailSheet } from '@/components/objectifs/InvoiceDetailSheet';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   computeAllQuarters,
   quarterLabel,
@@ -21,21 +20,27 @@ import {
 
 /* ─── Types ─── */
 
-interface Invoice {
-  id: string;
-  client_name: string;
-  description: string | null;
-  amount: number;
-  date_issued: string;
-  date_due: string | null;
-  status: string | null;
-  paid_date: string | null;
-}
-
 interface AnnualObjective {
   id?: string;
   revenue_target: number;
 }
+
+interface MonthlySignedRevenue {
+  id: string;
+  year: number;
+  month: number;
+  total_signed: number;
+}
+
+interface SignedDetail {
+  id: string;
+  monthly_signed_id: string;
+  offer_id: string | null;
+  label: string | null;
+  amount: number;
+}
+
+const MONTH_NAMES = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 /* ─── Main Page ─── */
 
@@ -57,12 +62,10 @@ export default function ObjectifsPage() {
   // Quarterly inputs: offerId-quarter -> target_new_clients
   const [qInputs, setQInputs] = useState<Map<string, number>>(new Map());
 
-  // Invoices
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
-  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
-  const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
-  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  // Signed revenue
+  const [signedRevenues, setSignedRevenues] = useState<MonthlySignedRevenue[]>([]);
+  const [signedDetails, setSignedDetails] = useState<Map<string, SignedDetail[]>>(new Map());
+  const [expandedMonths, setExpandedMonths] = useState<Set<number>>(new Set());
 
   const [loading, setLoading] = useState(true);
   const [savingAnnual, setSavingAnnual] = useState(false);
@@ -76,51 +79,36 @@ export default function ObjectifsPage() {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year + 1}-01-01`;
 
-    // Quarter date range for invoices
     const qMonths = quarterMonths(selectedQ);
-    const qStart = `${year}-${String(qMonths[0]).padStart(2, '0')}-01`;
-    const qEndMonth = qMonths[2] + 1;
-    const qEndYear = qEndMonth > 12 ? year + 1 : year;
-    const qEnd = `${qEndYear}-${String(qEndMonth > 12 ? 1 : qEndMonth).padStart(2, '0')}-01`;
 
-    const [offersRes, qObjRes, annualObjRes, txRes, invRes] = await Promise.all([
+    const [offersRes, qObjRes, annualObjRes, txRes, signedRes] = await Promise.all([
       supabase.from('offers').select('*').eq('user_id', user.id).eq('is_active', true).order('sort_order'),
       supabase.from('quarterly_objectives').select('*').eq('user_id', user.id).eq('year', year),
       supabase.from('annual_objectives').select('id, revenue_target').eq('user_id', user.id).eq('year', year).maybeSingle(),
       supabase.from('transactions').select('date, amount').eq('user_id', user.id).gte('date', yearStart).lt('date', yearEnd),
-      supabase.from('invoices').select('id, client_name, description, amount, date_issued, date_due, status, paid_date')
-        .eq('user_id', user.id).gte('date_issued', qStart).lt('date_issued', qEnd).order('date_issued', { ascending: false }),
+      supabase.from('monthly_signed_revenue').select('id, year, month, total_signed')
+        .eq('user_id', user.id).eq('year', year)
+        .in('month', qMonths),
     ]);
 
     const fetchedOffers: Offer[] = (offersRes.data ?? []).map((o: any) => ({
-      id: o.id,
-      name: o.name,
-      emoji: o.emoji,
-      unit_price: Number(o.unit_price),
-      billing_type: o.billing_type,
-      recurring_duration: o.recurring_duration,
-      is_active: o.is_active,
-      sort_order: o.sort_order,
+      id: o.id, name: o.name, emoji: o.emoji, unit_price: Number(o.unit_price),
+      billing_type: o.billing_type, recurring_duration: o.recurring_duration,
+      is_active: o.is_active, sort_order: o.sort_order,
     }));
     setOffers(fetchedOffers);
 
     const fetchedQObj: QuarterlyObjective[] = (qObjRes.data ?? []).map((o: any) => ({
-      id: o.id,
-      offer_id: o.offer_id,
-      year: o.year,
-      quarter: o.quarter,
-      target_new_clients: o.target_new_clients,
+      id: o.id, offer_id: o.offer_id, year: o.year, quarter: o.quarter, target_new_clients: o.target_new_clients,
     }));
     setQObjectives(fetchedQObj);
 
-    // Populate inputs
     const inputs = new Map<string, number>();
     for (const obj of fetchedQObj) {
       inputs.set(`${obj.offer_id}-${obj.quarter}`, obj.target_new_clients);
     }
     setQInputs(inputs);
 
-    // Annual objective
     if (annualObjRes.data) {
       setAnnualObj({ id: annualObjRes.data.id, revenue_target: Number(annualObjRes.data.revenue_target) });
       setAnnualTargetInput(Number(annualObjRes.data.revenue_target).toString());
@@ -129,15 +117,12 @@ export default function ObjectifsPage() {
       setAnnualTargetInput('');
     }
 
-    // Compute quarterly summaries
     setQuarterSummaries(computeAllQuarters(fetchedOffers, fetchedQObj));
 
-    // Actuals from transactions
     const txs = txRes.data ?? [];
     const totalRev = txs.filter(t => t.amount > 0).reduce((s, t) => s + Number(t.amount), 0);
     setYearlyActualRevenue(totalRev);
 
-    // Per-quarter actuals
     const qActuals: [number, number, number, number] = [0, 0, 0, 0];
     for (const tx of txs) {
       if (tx.amount <= 0) continue;
@@ -147,7 +132,29 @@ export default function ObjectifsPage() {
     }
     setQuarterlyActuals(qActuals);
 
-    setInvoices(invRes.data ?? []);
+    // Signed revenues
+    const signedData = signedRes.data ?? [];
+    setSignedRevenues(signedData.map(s => ({ ...s, total_signed: Number(s.total_signed) })));
+
+    // Load details for each signed revenue
+    if (signedData.length > 0) {
+      const ids = signedData.map(s => s.id);
+      const { data: detailsData } = await supabase
+        .from('monthly_signed_revenue_details')
+        .select('id, monthly_signed_id, offer_id, label, amount')
+        .in('monthly_signed_id', ids);
+
+      const detailMap = new Map<string, SignedDetail[]>();
+      for (const d of (detailsData ?? [])) {
+        const list = detailMap.get(d.monthly_signed_id) || [];
+        list.push({ ...d, amount: Number(d.amount) });
+        detailMap.set(d.monthly_signed_id, list);
+      }
+      setSignedDetails(detailMap);
+    } else {
+      setSignedDetails(new Map());
+    }
+
     setLoading(false);
   }, [user, year, selectedQ]);
 
@@ -178,16 +185,11 @@ export default function ObjectifsPage() {
     if (!user) return;
     setSavingQ(q);
 
-    // Collect all offer inputs for this quarter
     const upserts = offers.map((offer) => ({
-      user_id: user.id,
-      year,
-      quarter: q,
-      offer_id: offer.id,
+      user_id: user.id, year, quarter: q, offer_id: offer.id,
       target_new_clients: qInputs.get(`${offer.id}-${q}`) ?? 0,
     }));
 
-    // Delete existing for this quarter then insert
     await supabase.from('quarterly_objectives').delete().eq('user_id', user.id).eq('year', year).eq('quarter', q);
     const { error } = await supabase.from('quarterly_objectives').insert(upserts);
     if (error) toast.error(error.message);
@@ -205,7 +207,6 @@ export default function ObjectifsPage() {
       return next;
     });
 
-    // Recompute summaries locally
     const updatedObjectives: QuarterlyObjective[] = [];
     const tempInputs = new Map(qInputs);
     tempInputs.set(`${offerId}-${quarter}`, value);
@@ -213,68 +214,118 @@ export default function ObjectifsPage() {
       const [oId, qStr] = key.split('-');
       updatedObjectives.push({ offer_id: oId, year, quarter: parseInt(qStr), target_new_clients: val });
     }
-    // Also include existing objectives not in inputs
     for (const obj of qObjectives) {
       const key = `${obj.offer_id}-${obj.quarter}`;
-      if (!tempInputs.has(key)) {
-        updatedObjectives.push(obj);
-      }
+      if (!tempInputs.has(key)) updatedObjectives.push(obj);
     }
     setQuarterSummaries(computeAllQuarters(offers, updatedObjectives));
   };
 
-  /* ─── Invoice handlers ─── */
-  const qMonths = quarterMonths(selectedQ);
-  const defaultInvoiceDate = `${year}-${String(qMonths[0]).padStart(2, '0')}-01`;
+  /* ─── Signed Revenue helpers ─── */
+  const getSignedForMonth = (month: number) => signedRevenues.find(s => s.month === month);
+  const getDetailsForMonth = (month: number) => {
+    const sr = getSignedForMonth(month);
+    if (!sr) return [];
+    return signedDetails.get(sr.id) ?? [];
+  };
+  const hasDetails = (month: number) => getDetailsForMonth(month).length > 0;
 
-  const handleSaveInvoice = async (data: { client_name: string; description: string; amount: number; date_issued: string; date_due: string; status: string }) => {
+  const upsertSignedTotal = async (month: number, total: number) => {
     if (!user) return;
-    if (editingInvoice) {
-      const { error } = await supabase.from('invoices').update(data).eq('id', editingInvoice.id);
-      if (error) { toast.error(error.message); return; }
-      toast.success('Facture modifiée');
+    const existing = getSignedForMonth(month);
+    if (existing) {
+      await supabase.from('monthly_signed_revenue')
+        .update({ total_signed: total, updated_at: new Date().toISOString() })
+        .eq('id', existing.id);
     } else {
-      const { error } = await supabase.from('invoices').insert({ ...data, user_id: user.id });
-      if (error) { toast.error(error.message); return; }
-      toast.success('Facture créée');
+      await supabase.from('monthly_signed_revenue')
+        .insert({ user_id: user.id, year, month, total_signed: total });
     }
-    setInvoiceModalOpen(false);
-    setEditingInvoice(null);
     load();
   };
 
-  const handleDeleteInvoice = async (id: string) => {
-    const { error } = await supabase.from('invoices').delete().eq('id', id);
-    if (error) toast.error(error.message);
-    else { toast.success('Facture supprimée'); load(); }
+  const ensureSignedRecord = async (month: number): Promise<string> => {
+    if (!user) throw new Error('No user');
+    const existing = getSignedForMonth(month);
+    if (existing) return existing.id;
+    const { data, error } = await supabase.from('monthly_signed_revenue')
+      .insert({ user_id: user.id, year, month, total_signed: 0 })
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data.id;
   };
 
-  const handleMarkPaid = async (id: string) => {
-    const { error } = await supabase.from('invoices').update({ status: 'paid', paid_date: new Date().toISOString().slice(0, 10) }).eq('id', id);
-    if (error) toast.error(error.message);
-    else { toast.success('Facture marquée comme payée'); load(); }
-  };
-
-  const handleSaveFromSheet = async (data: { client_name: string; description: string; amount: number; date_issued: string; date_due: string; status: string; paid_date: string | null }) => {
-    if (!detailInvoice) return;
-    const { error } = await supabase.from('invoices').update(data).eq('id', detailInvoice.id);
-    if (error) { toast.error(error.message); return; }
-    toast.success('Facture mise à jour');
-    setDetailSheetOpen(false);
-    setDetailInvoice(null);
+  const saveDetail = async (month: number, detail: SignedDetail) => {
+    if (!user) return;
+    const monthlyId = await ensureSignedRecord(month);
+    if (detail.id.startsWith('new-')) {
+      // Insert
+      await supabase.from('monthly_signed_revenue_details').insert({
+        user_id: user.id, monthly_signed_id: monthlyId,
+        offer_id: detail.offer_id, label: detail.label, amount: detail.amount,
+      });
+    } else {
+      await supabase.from('monthly_signed_revenue_details')
+        .update({ amount: detail.amount, label: detail.label, offer_id: detail.offer_id })
+        .eq('id', detail.id);
+    }
+    // Recalc total
+    const { data: allDetails } = await supabase.from('monthly_signed_revenue_details')
+      .select('amount').eq('monthly_signed_id', monthlyId);
+    const newTotal = (allDetails ?? []).reduce((s, d) => s + Number(d.amount), 0);
+    await supabase.from('monthly_signed_revenue')
+      .update({ total_signed: newTotal, updated_at: new Date().toISOString() })
+      .eq('id', monthlyId);
     load();
+  };
+
+  const deleteDetail = async (month: number, detailId: string) => {
+    if (detailId.startsWith('new-')) {
+      // Just remove from local state
+      load();
+      return;
+    }
+    const sr = getSignedForMonth(month);
+    await supabase.from('monthly_signed_revenue_details').delete().eq('id', detailId);
+    if (sr) {
+      const { data: remaining } = await supabase.from('monthly_signed_revenue_details')
+        .select('amount').eq('monthly_signed_id', sr.id);
+      const newTotal = (remaining ?? []).reduce((s, d) => s + Number(d.amount), 0);
+      await supabase.from('monthly_signed_revenue')
+        .update({ total_signed: newTotal, updated_at: new Date().toISOString() })
+        .eq('id', sr.id);
+    }
+    load();
+  };
+
+  const addFreeLine = (month: number) => {
+    const sr = getSignedForMonth(month);
+    const monthlyId = sr?.id ?? 'pending';
+    const newDetail: SignedDetail = {
+      id: `new-${Date.now()}`, monthly_signed_id: monthlyId,
+      offer_id: null, label: '', amount: 0,
+    };
+    setSignedDetails(prev => {
+      const next = new Map(prev);
+      const key = sr?.id ?? '__pending_' + month;
+      const list = [...(next.get(key) ?? []), newDetail];
+      next.set(key, list);
+      return next;
+    });
   };
 
   /* ─── Derived ─── */
   const annualTarget = annualObj?.revenue_target ?? 0;
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearlyActualRevenue / annualTarget) * 100)) : null;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const overdueInvoices = invoices.filter(i => i.date_due && i.date_due < today && i.status !== 'paid' && i.status !== 'cancelled');
-  const overdueTotal = overdueInvoices.reduce((s, i) => s + i.amount, 0);
+  const selectedQSummary = quarterSummaries.find(qs => qs.quarter === selectedQ);
+  const qTargetTotal = selectedQSummary?.totalProjected ?? 0;
+  const qMonths = quarterMonths(selectedQ);
 
-  const paidTotal = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
-  const sentTotal = invoices.filter(i => i.status === 'sent' && !overdueInvoices.find(o => o.id === i.id)).reduce((s, i) => s + i.amount, 0);
+  // Signed total for the quarter
+  const qSignedTotal = qMonths.reduce((s, m) => s + (getSignedForMonth(m)?.total_signed ?? 0), 0);
+  const qSignedPct = qTargetTotal > 0 ? Math.min(100, Math.round((qSignedTotal / qTargetTotal) * 100)) : null;
 
   /* ─── Loading state ─── */
   if (loading) {
@@ -369,7 +420,6 @@ export default function ObjectifsPage() {
                 }`}
                 onClick={() => setSelectedQ(qs.quarter)}
               >
-                {/* Header */}
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xl font-serif font-normal text-accent">T{qs.quarter}</h3>
@@ -392,7 +442,6 @@ export default function ObjectifsPage() {
                   </div>
                 </div>
 
-                {/* Offer rows */}
                 <div className="space-y-2.5">
                   {qs.offerRows.map((row) => (
                     <div key={row.offer.id} className="flex items-center gap-2 text-sm">
@@ -411,13 +460,11 @@ export default function ObjectifsPage() {
                   ))}
                 </div>
 
-                {/* Total */}
                 <div className="border-t border-border pt-2 flex items-center justify-between">
                   <span className="text-xs font-medium">Total</span>
                   <span className="font-mono text-sm font-medium">{formatEur(qs.totalProjected)}</span>
                 </div>
 
-                {/* Save button */}
                 <Button
                   size="sm"
                   variant="outline"
@@ -434,114 +481,208 @@ export default function ObjectifsPage() {
         </div>
       )}
 
-      {/* ═══ SECTION 3: Invoices for selected quarter ═══ */}
+      {/* ═══ SECTION 3: CA Signé ═══ */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-lg text-accent font-serif font-normal">
-            Factures — T{selectedQ} {year}
-          </h2>
-          <Button onClick={() => { setEditingInvoice(null); setInvoiceModalOpen(true); }} size="sm">
-            <Plus className="h-4 w-4 mr-1" />
-            Nouvelle facture
-          </Button>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg text-accent font-serif font-normal">CA signé — T{selectedQ} {year}</h2>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button className="text-muted-foreground hover:text-foreground transition-colors">
+                  <Info className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                Le CA signé, c'est ce que tu as facturé ou contractualisé. C'est différent du CA encaissé (ce qui est arrivé sur ton compte), qui lui est calculé depuis tes imports bancaires.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
-        {/* Overdue alert */}
-        {overdueInvoices.length > 0 && (
-          <div className="bg-destructive/10 border border-destructive/20 rounded-[16px] p-4 flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-destructive">
-                {overdueInvoices.length} facture{overdueInvoices.length > 1 ? 's' : ''} en retard ({formatEur(overdueTotal)})
-              </p>
-              <p className="text-xs text-destructive/70 mt-0.5">Pense à relancer tes clients 💪</p>
-            </div>
-          </div>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {qMonths.map((month) => {
+            const monthTarget = qTargetTotal / 3;
+            const sr = getSignedForMonth(month);
+            const total = sr?.total_signed ?? 0;
+            const details = getDetailsForMonth(month);
+            const hasDetailRows = details.length > 0;
+            const isExpanded = expandedMonths.has(month);
+            const pct = monthTarget > 0 ? Math.min(100, Math.round((total / monthTarget) * 100)) : 0;
+            const isGood = total >= monthTarget && monthTarget > 0;
 
-        {/* Mini stacked bar */}
-        {invoices.length > 0 && (
-          <div className="flex gap-0.5 h-3 rounded-full overflow-hidden">
-            {paidTotal > 0 && (
-              <div className="bg-green-400 transition-all" style={{ flex: paidTotal }} title={`Payées: ${formatEur(paidTotal)}`} />
-            )}
-            {sentTotal > 0 && (
-              <div className="bg-primary/60 transition-all" style={{ flex: sentTotal }} title={`Envoyées: ${formatEur(sentTotal)}`} />
-            )}
-            {overdueTotal > 0 && (
-              <div className="bg-destructive transition-all" style={{ flex: overdueTotal }} title={`En retard: ${formatEur(overdueTotal)}`} />
-            )}
-          </div>
-        )}
+            return (
+              <div key={month} className="bg-card rounded-[20px] shadow-soft p-5 space-y-3">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium text-accent">{MONTH_NAMES[month - 1]} {year}</h3>
+                  {total > 0 && (
+                    <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-0.5 text-xs font-mono font-medium">
+                      {formatEur(total)}
+                    </span>
+                  )}
+                </div>
 
-        {/* Invoice table */}
-        {invoices.length === 0 ? (
-          <div className="bg-card rounded-[20px] shadow-soft p-12 text-center space-y-3">
-            <span className="text-5xl">🧾</span>
-            <h3 className="text-lg text-accent font-serif font-normal">Aucune facture ce trimestre</h3>
-            <p className="text-sm text-muted-foreground">Crée ta première facture pour suivre tes paiements.</p>
-            <Button onClick={() => { setEditingInvoice(null); setInvoiceModalOpen(true); }}>
-              <Plus className="h-4 w-4 mr-1" />
-              Créer une facture
-            </Button>
-          </div>
-        ) : (
-          <div className="bg-card rounded-[20px] shadow-soft overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Client</th>
-                    <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Description</th>
-                    <th className="text-right px-4 py-3 text-xs text-muted-foreground font-medium">Montant</th>
-                    <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Émission</th>
-                    <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Échéance</th>
-                    <th className="text-center px-4 py-3 text-xs text-muted-foreground font-medium">Statut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((inv) => {
-                    const isOverdue = inv.date_due && inv.date_due < today && inv.status !== 'paid' && inv.status !== 'cancelled';
-                    return (
-                      <tr
-                        key={inv.id}
-                        className="border-t border-border hover:bg-muted/30 cursor-pointer transition-colors"
-                        onClick={() => { setDetailInvoice(inv); setDetailSheetOpen(true); }}
-                      >
-                        <td className="px-4 py-2.5 font-medium">{inv.client_name}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground truncate max-w-[200px]">{inv.description || '—'}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-xs">{formatEur(inv.amount)}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs">{inv.date_issued}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs">{inv.date_due ?? '—'}</td>
-                        <td className="px-4 py-2.5 text-center">
-                          <StatusBadge status={isOverdue ? 'overdue' : (inv.status ?? 'draft')} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                {/* Main input */}
+                {hasDetailRows ? (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        value={total}
+                        readOnly
+                        className="font-mono text-xl h-11 pr-8 bg-muted/50 cursor-not-allowed"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Calculé depuis le détail</p>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      defaultValue={total || ''}
+                      placeholder="0"
+                      className="font-mono text-xl h-11 pr-8"
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        if (val !== total) upsertSignedTotal(month, val);
+                      }}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                  </div>
+                )}
+
+                {/* Expand/collapse button */}
+                <button
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => {
+                    setExpandedMonths(prev => {
+                      const next = new Set(prev);
+                      if (next.has(month)) next.delete(month);
+                      else next.add(month);
+                      return next;
+                    });
+                  }}
+                >
+                  {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  Ventiler par offre
+                </button>
+
+                {/* Detail rows */}
+                {isExpanded && (
+                  <div className="space-y-2 pt-1 border-t border-border">
+                    {/* Offer lines */}
+                    {offers.map((offer) => {
+                      const detail = details.find(d => d.offer_id === offer.id);
+                      return (
+                        <div key={offer.id} className="flex items-center gap-2">
+                          <span className="shrink-0 w-5 text-center text-sm">{offer.emoji ?? '📦'}</span>
+                          <span className="flex-1 text-xs truncate">{offer.name}</span>
+                          <div className="relative w-24">
+                            <Input
+                              type="number"
+                              defaultValue={detail?.amount || ''}
+                              placeholder="0"
+                              className="font-mono text-xs h-7 pr-6 w-full"
+                              onBlur={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                if (detail) {
+                                  if (val !== detail.amount) saveDetail(month, { ...detail, amount: val });
+                                } else if (val > 0) {
+                                  saveDetail(month, { id: `new-${Date.now()}`, monthly_signed_id: '', offer_id: offer.id, label: null, amount: val });
+                                }
+                              }}
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">€</span>
+                          </div>
+                          {detail && (
+                            <button onClick={() => deleteDetail(month, detail.id)} className="text-muted-foreground hover:text-destructive p-0.5">
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Free lines */}
+                    {details.filter(d => !d.offer_id).map((detail) => (
+                      <div key={detail.id} className="flex items-center gap-2">
+                        <span className="shrink-0 w-5 text-center text-sm">📝</span>
+                        <Input
+                          type="text"
+                          defaultValue={detail.label ?? ''}
+                          placeholder="Libellé…"
+                          className="flex-1 text-xs h-7"
+                          onBlur={(e) => {
+                            if (e.target.value !== (detail.label ?? '')) {
+                              saveDetail(month, { ...detail, label: e.target.value });
+                            }
+                          }}
+                        />
+                        <div className="relative w-24">
+                          <Input
+                            type="number"
+                            defaultValue={detail.amount || ''}
+                            placeholder="0"
+                            className="font-mono text-xs h-7 pr-6 w-full"
+                            onBlur={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              if (val !== detail.amount) saveDetail(month, { ...detail, amount: val });
+                            }}
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">€</span>
+                        </div>
+                        <button onClick={() => deleteDetail(month, detail.id)} className="text-muted-foreground hover:text-destructive p-0.5">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <button
+                      onClick={() => addFreeLine(month)}
+                      className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors pt-1"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Ligne libre
+                    </button>
+                  </div>
+                )}
+
+                {/* Objective comparison */}
+                {monthTarget > 0 && (
+                  <div className="space-y-1.5 pt-2">
+                    <p className="text-[11px] text-muted-foreground">Objectif : {formatEur(monthTarget)}</p>
+                    <div className="h-1 rounded-full bg-primary/15 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${isGood ? 'bg-green-500' : 'bg-primary'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Quarter total */}
+        <div className="bg-card rounded-[20px] shadow-soft p-4 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium">Total T{selectedQ} signé</span>
+          <span className="text-sm">
+            <span className="font-mono font-medium">{formatEur(qSignedTotal)}</span>
+            {qTargetTotal > 0 && (
+              <>
+                {' '}/ <span className="font-mono text-muted-foreground">{formatEur(qTargetTotal)}</span>
+                {qSignedPct !== null && (
+                  <span className={`ml-1 text-xs font-medium ${qSignedTotal >= qTargetTotal ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    ({qSignedPct}%)
+                  </span>
+                )}
+              </>
+            )}
+          </span>
+        </div>
       </div>
-
-      {/* Modals */}
-      <InvoiceModal
-        open={invoiceModalOpen}
-        onOpenChange={setInvoiceModalOpen}
-        onSave={handleSaveInvoice}
-        invoice={editingInvoice}
-        defaultDate={defaultInvoiceDate}
-      />
-      <InvoiceDetailSheet
-        open={detailSheetOpen}
-        onOpenChange={setDetailSheetOpen}
-        invoice={detailInvoice}
-        onSave={handleSaveFromSheet}
-        onDelete={handleDeleteInvoice}
-        onMarkPaid={handleMarkPaid}
-      />
     </div>
   );
 }
@@ -560,16 +701,4 @@ function YearSelector({ year, onChange }: { year: number; onChange: (y: number) 
       </button>
     </div>
   );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    draft: { label: 'Brouillon', cls: 'bg-muted text-muted-foreground' },
-    sent: { label: 'Envoyée', cls: 'bg-secondary text-secondary-foreground' },
-    paid: { label: 'Payée', cls: 'bg-green-100 text-green-700' },
-    overdue: { label: 'En retard', cls: 'bg-destructive/10 text-destructive' },
-    cancelled: { label: 'Annulée', cls: 'bg-muted text-muted-foreground' },
-  };
-  const s = map[status] ?? map.draft;
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>;
 }
