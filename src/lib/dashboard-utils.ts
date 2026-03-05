@@ -91,6 +91,37 @@ export function getDateRange(year: number, period: PeriodType, periodValue: numb
   };
 }
 
+/* ───── Paginated transaction fetch ───── */
+
+async function fetchPaginated(
+  userId: string,
+  select: string,
+  dateStart: string,
+  dateEnd: string,
+  orderBy?: { column: string; ascending: boolean },
+): Promise<any[]> {
+  const PAGE = 1000;
+  let all: any[] = [];
+  let from = 0;
+  let done = false;
+  while (!done) {
+    let q = supabase
+      .from('transactions')
+      .select(select)
+      .eq('user_id', userId)
+      .gte('date', dateStart)
+      .lt('date', dateEnd)
+      .range(from, from + PAGE - 1);
+    if (orderBy) q = q.order(orderBy.column, { ascending: orderBy.ascending });
+    const { data, error } = await q;
+    if (error) throw error;
+    all = all.concat(data ?? []);
+    done = (data?.length ?? 0) < PAGE;
+    from += PAGE;
+  }
+  return all;
+}
+
 /* ───── Fetch all dashboard data ───── */
 
 export interface DashboardData {
@@ -118,13 +149,12 @@ export async function fetchDashboardData(
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   const sparkStart = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
 
-  const [txRes, prevTxRes, allYearRes, catRes, annObjRes, qObjRes, offRes, bankRes, sparkRes] = await Promise.all([
-    supabase.from('transactions').select('id, date, label, amount, category_id, source, is_validated')
-      .eq('user_id', userId).gte('date', start).lt('date', end).order('date', { ascending: false }).limit(1000),
-    supabase.from('transactions').select('id, date, label, amount, category_id, source, is_validated')
-      .eq('user_id', userId).gte('date', prevRange.start).lt('date', prevRange.end).limit(1000),
-    supabase.from('transactions').select('id, date, label, amount, category_id, source, is_validated')
-      .eq('user_id', userId).gte('date', yearRange.start).lt('date', yearRange.end).limit(1000),
+  const txSelect = 'id, date, label, amount, category_id, source, is_validated';
+
+  const [txData, prevTxData, allYearData, catRes, annObjRes, qObjRes, offRes, bankRes, sparkData] = await Promise.all([
+    fetchPaginated(userId, txSelect, start, end, { column: 'date', ascending: false }),
+    fetchPaginated(userId, txSelect, prevRange.start, prevRange.end),
+    fetchPaginated(userId, txSelect, yearRange.start, yearRange.end),
     supabase.from('categories').select('id, name, emoji, color, type').eq('user_id', userId),
     supabase.from('annual_objectives').select('id, year, revenue_target')
       .eq('user_id', userId).eq('year', year).maybeSingle(),
@@ -133,20 +163,19 @@ export async function fetchDashboardData(
     supabase.from('offers').select('id, name, emoji, unit_price, billing_type, recurring_duration, is_active, sort_order')
       .eq('user_id', userId).eq('is_active', true),
     supabase.from('bank_accounts').select('id, name, current_balance').eq('user_id', userId),
-    supabase.from('transactions').select('date, amount')
-      .eq('user_id', userId).gte('date', sparkStart).lt('date', yearRange.end),
+    fetchPaginated(userId, 'date, amount', sparkStart, yearRange.end),
   ]);
 
   return {
-    transactions: (txRes.data ?? []) as Transaction[],
-    prevTransactions: (prevTxRes.data ?? []) as Transaction[],
-    allYearTransactions: (allYearRes.data ?? []) as Transaction[],
+    transactions: txData as Transaction[],
+    prevTransactions: prevTxData as Transaction[],
+    allYearTransactions: allYearData as Transaction[],
     categories: (catRes.data ?? []) as Category[],
     annualObjective: annObjRes.data as AnnualObjective | null,
     quarterlyObjectives: (qObjRes.data ?? []) as QuarterlyObjective[],
     offers: (offRes.data ?? []) as unknown as Offer[],
     bankAccounts: (bankRes.data ?? []) as BankAccount[],
-    sparklineData: (sparkRes.data ?? []) as { date: string; amount: number }[],
+    sparklineData: sparkData as { date: string; amount: number }[],
   };
 }
 
