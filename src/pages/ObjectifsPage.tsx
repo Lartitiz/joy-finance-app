@@ -352,24 +352,9 @@ export default function ObjectifsPage() {
       <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-5 card-hover">
         <h2 className="text-lg text-accent font-serif font-normal">Objectif annuel {year}</h2>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="relative">
-            <Input
-              type="number"
-              value={annualTargetInput}
-              onChange={(e) => setAnnualTargetInput(e.target.value)}
-              onBlur={handleSaveAnnual}
-              className="font-mono text-2xl h-12 w-48 pr-8"
-              placeholder="0"
-              min={0}
-              step={1000}
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-lg">€</span>
-          </div>
-          <Button onClick={handleSaveAnnual} disabled={savingAnnual} size="sm" variant="outline">
-            <Save className="h-3.5 w-3.5 mr-1" />
-            {savingAnnual ? '…' : 'Enregistrer'}
-          </Button>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="font-mono text-2xl font-medium text-foreground">{formatEur(annualTarget)}</span>
+          <span className="text-sm text-muted-foreground">calculé depuis T1 + T2 + T3 + T4</span>
         </div>
 
         {annualTarget > 0 && (
@@ -386,12 +371,16 @@ export default function ObjectifsPage() {
 
         {/* Quarter badges */}
         <div className="flex flex-wrap gap-2">
-          {([1, 2, 3, 4] as const).map((q) => (
-            <span key={q} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">
-              <span className="font-medium">T{q}:</span>
-              <span className="font-mono">{formatEur(quarterlyActuals[q - 1])}</span>
-            </span>
-          ))}
+          {([1, 2, 3, 4] as const).map((q) => {
+            const projected = quarterSummaries.find(qs => qs.quarter === q)?.totalProjected ?? 0;
+            return (
+              <span key={q} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">
+                <span className="font-medium">T{q}:</span>
+                <span className="font-mono">{formatEur(quarterlyActuals[q - 1])}</span>
+                <span className="text-muted-foreground">/ {formatEur(projected)}</span>
+              </span>
+            );
+          })}
         </div>
       </div>
 
