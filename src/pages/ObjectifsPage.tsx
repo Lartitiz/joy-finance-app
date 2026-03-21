@@ -316,7 +316,7 @@ export default function ObjectifsPage() {
   };
 
   /* ─── Derived ─── */
-  const annualTarget = annualObj?.revenue_target ?? 0;
+  const annualTarget = quarterSummaries.reduce((s, qs) => s + qs.totalProjected, 0);
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearlyActualRevenue / annualTarget) * 100)) : null;
 
   const selectedQSummary = quarterSummaries.find(qs => qs.quarter === selectedQ);
