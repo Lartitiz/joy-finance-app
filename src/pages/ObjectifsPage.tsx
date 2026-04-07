@@ -109,7 +109,7 @@ export default function ObjectifsPage() {
 
     const qMonths = quarterMonths(selectedQ);
 
-    const [offersRes, qObjRes, annualObjRes, txRes, signedRes] = await Promise.all([
+    const [offersRes, qObjRes, annualObjRes, txRes, signedRes, actKpiRes, actTargetRes] = await Promise.all([
       supabase.from('offers').select('*').eq('user_id', user.id).eq('is_active', true).order('sort_order'),
       supabase.from('quarterly_objectives').select('*').eq('user_id', user.id).eq('year', year),
       supabase.from('annual_objectives').select('id, revenue_target').eq('user_id', user.id).eq('year', year).maybeSingle(),
@@ -117,6 +117,11 @@ export default function ObjectifsPage() {
       supabase.from('monthly_signed_revenue').select('id, year, month, total_signed')
         .eq('user_id', user.id).eq('year', year)
         .in('month', qMonths),
+      supabase.from('monthly_activity_kpis').select('*')
+        .eq('user_id', user.id).eq('year', year)
+        .in('month', qMonths),
+      supabase.from('quarterly_activity_targets').select('*')
+        .eq('user_id', user.id).eq('year', year),
     ]);
 
     const fetchedOffers: Offer[] = (offersRes.data ?? []).map((o: any) => ({
