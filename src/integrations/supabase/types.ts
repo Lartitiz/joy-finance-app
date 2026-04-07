@@ -187,6 +187,42 @@ export type Database = {
           },
         ]
       }
+      monthly_activity_kpis: {
+        Row: {
+          active_clients: number
+          created_at: string
+          discovery_calls: number
+          id: string
+          month: number
+          prospects: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          active_clients?: number
+          created_at?: string
+          discovery_calls?: number
+          id?: string
+          month: number
+          prospects?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          active_clients?: number
+          created_at?: string
+          discovery_calls?: number
+          id?: string
+          month?: number
+          prospects?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: []
+      }
       monthly_objectives: {
         Row: {
           created_at: string
@@ -349,6 +385,39 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+        }
+        Relationships: []
+      }
+      quarterly_activity_targets: {
+        Row: {
+          active_clients: number
+          created_at: string
+          discovery_calls: number
+          id: string
+          prospects: number
+          quarter: number
+          user_id: string
+          year: number
+        }
+        Insert: {
+          active_clients?: number
+          created_at?: string
+          discovery_calls?: number
+          id?: string
+          prospects?: number
+          quarter: number
+          user_id: string
+          year: number
+        }
+        Update: {
+          active_clients?: number
+          created_at?: string
+          discovery_calls?: number
+          id?: string
+          prospects?: number
+          quarter?: number
+          user_id?: string
+          year?: number
         }
         Relationships: []
       }

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { ChevronLeft, ChevronRight, Save, Plus, ChevronDown, ChevronUp, Trash2, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Plus, ChevronDown, ChevronUp, Trash2, Info, Phone, Users, Target } from 'lucide-react';
 import { formatEur } from '@/lib/dashboard-utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -40,6 +40,30 @@ interface SignedDetail {
   amount: number;
 }
 
+interface MonthlyActivityKpi {
+  id?: string;
+  year: number;
+  month: number;
+  discovery_calls: number;
+  active_clients: number;
+  prospects: number;
+}
+
+interface QuarterlyActivityTarget {
+  id?: string;
+  year: number;
+  quarter: number;
+  discovery_calls: number;
+  active_clients: number;
+  prospects: number;
+}
+
+const ACTIVITY_FIELDS: { key: 'discovery_calls' | 'active_clients' | 'prospects'; icon: typeof Phone; emoji: string; label: string }[] = [
+  { key: 'discovery_calls', icon: Phone, emoji: '☎️', label: 'Appels découverte' },
+  { key: 'active_clients', icon: Users, emoji: '👥', label: 'Clientes actives' },
+  { key: 'prospects', icon: Target, emoji: '🎯', label: 'Prospects contactés' },
+];
+
 const MONTH_NAMES = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 /* ─── Main Page ─── */
@@ -67,6 +91,10 @@ export default function ObjectifsPage() {
   const [signedDetails, setSignedDetails] = useState<Map<string, SignedDetail[]>>(new Map());
   const [expandedMonths, setExpandedMonths] = useState<Set<number>>(new Set());
 
+  // Activity KPIs
+  const [activityKpis, setActivityKpis] = useState<MonthlyActivityKpi[]>([]);
+  const [activityTargets, setActivityTargets] = useState<QuarterlyActivityTarget[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [savingAnnual, setSavingAnnual] = useState(false);
   const [savingQ, setSavingQ] = useState<number | null>(null);
@@ -81,7 +109,7 @@ export default function ObjectifsPage() {
 
     const qMonths = quarterMonths(selectedQ);
 
-    const [offersRes, qObjRes, annualObjRes, txRes, signedRes] = await Promise.all([
+    const [offersRes, qObjRes, annualObjRes, txRes, signedRes, actKpiRes, actTargetRes] = await Promise.all([
       supabase.from('offers').select('*').eq('user_id', user.id).eq('is_active', true).order('sort_order'),
       supabase.from('quarterly_objectives').select('*').eq('user_id', user.id).eq('year', year),
       supabase.from('annual_objectives').select('id, revenue_target').eq('user_id', user.id).eq('year', year).maybeSingle(),
@@ -89,6 +117,11 @@ export default function ObjectifsPage() {
       supabase.from('monthly_signed_revenue').select('id, year, month, total_signed')
         .eq('user_id', user.id).eq('year', year)
         .in('month', qMonths),
+      supabase.from('monthly_activity_kpis').select('*')
+        .eq('user_id', user.id).eq('year', year)
+        .in('month', qMonths),
+      supabase.from('quarterly_activity_targets').select('*')
+        .eq('user_id', user.id).eq('year', year),
     ]);
 
     const fetchedOffers: Offer[] = (offersRes.data ?? []).map((o: any) => ({
@@ -154,6 +187,16 @@ export default function ObjectifsPage() {
     } else {
       setSignedDetails(new Map());
     }
+
+    // Activity KPIs
+    setActivityKpis((actKpiRes.data ?? []).map((k: any) => ({
+      id: k.id, year: k.year, month: k.month,
+      discovery_calls: k.discovery_calls, active_clients: k.active_clients, prospects: k.prospects,
+    })));
+    setActivityTargets((actTargetRes.data ?? []).map((t: any) => ({
+      id: t.id, year: t.year, quarter: t.quarter,
+      discovery_calls: t.discovery_calls, active_clients: t.active_clients, prospects: t.prospects,
+    })));
 
     setLoading(false);
   }, [user, year, selectedQ]);
@@ -315,7 +358,42 @@ export default function ObjectifsPage() {
     });
   };
 
-  /* ─── Derived ─── */
+  /* ─── Activity KPI helpers ─── */
+  const getActivityForMonth = (month: number) => activityKpis.find(k => k.month === month);
+  const getActivityTarget = (quarter: number) => activityTargets.find(t => t.quarter === quarter);
+
+  const upsertActivityKpi = async (month: number, field: 'discovery_calls' | 'active_clients' | 'prospects', value: number) => {
+    if (!user) return;
+    const existing = getActivityForMonth(month);
+    if (existing?.id) {
+      await supabase.from('monthly_activity_kpis').update({ [field]: value, updated_at: new Date().toISOString() }).eq('id', existing.id);
+    } else {
+      await supabase.from('monthly_activity_kpis').upsert({
+        user_id: user.id, year, month,
+        discovery_calls: field === 'discovery_calls' ? value : 0,
+        active_clients: field === 'active_clients' ? value : 0,
+        prospects: field === 'prospects' ? value : 0,
+      }, { onConflict: 'user_id,year,month' });
+    }
+    load();
+  };
+
+  const upsertActivityTarget = async (quarter: number, field: 'discovery_calls' | 'active_clients' | 'prospects', value: number) => {
+    if (!user) return;
+    const existing = getActivityTarget(quarter);
+    if (existing?.id) {
+      await supabase.from('quarterly_activity_targets').update({ [field]: value }).eq('id', existing.id);
+    } else {
+      await supabase.from('quarterly_activity_targets').upsert({
+        user_id: user.id, year, quarter,
+        discovery_calls: field === 'discovery_calls' ? value : 0,
+        active_clients: field === 'active_clients' ? value : 0,
+        prospects: field === 'prospects' ? value : 0,
+      }, { onConflict: 'user_id,year,quarter' });
+    }
+    load();
+  };
+
   const annualTarget = quarterSummaries.reduce((s, qs) => s + qs.totalProjected, 0);
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearlyActualRevenue / annualTarget) * 100)) : null;
 
@@ -464,6 +542,31 @@ export default function ObjectifsPage() {
                   <Save className="h-3 w-3 mr-1" />
                   {savingQ === qs.quarter ? '…' : `Enregistrer T${qs.quarter}`}
                 </Button>
+
+                {/* Activity targets */}
+                <div className="border-t border-border pt-3 space-y-2">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Objectifs activité</p>
+                  {ACTIVITY_FIELDS.map(({ key, emoji, label }) => {
+                    const target = getActivityTarget(qs.quarter);
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-xs">
+                        <span className="shrink-0 w-5 text-center">{emoji}</span>
+                        <span className="flex-1 truncate">{label}</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          defaultValue={target?.[key] ?? 0}
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            if (val !== (target?.[key] ?? 0)) upsertActivityTarget(qs.quarter, key, val);
+                          }}
+                          className="w-14 h-7 text-xs font-mono text-center p-0"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
@@ -636,6 +739,36 @@ export default function ObjectifsPage() {
                     </button>
                   </div>
                 )}
+
+                {/* Activity KPIs */}
+                <div className="border-t border-border pt-3 space-y-2">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Activité</p>
+                  {ACTIVITY_FIELDS.map(({ key, emoji, label }) => {
+                    const kpi = getActivityForMonth(month);
+                    const target = getActivityTarget(selectedQ);
+                    const monthlyTarget = target ? Math.round(target[key] / 3) : 0;
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-xs">
+                        <span className="shrink-0 w-5 text-center">{emoji}</span>
+                        <span className="flex-1 truncate">{label}</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          defaultValue={kpi?.[key] ?? 0}
+                          placeholder="0"
+                          className="w-14 h-7 text-xs font-mono text-center p-0"
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            if (val !== (kpi?.[key] ?? 0)) upsertActivityKpi(month, key, val);
+                          }}
+                        />
+                        {monthlyTarget > 0 && (
+                          <span className="text-[10px] text-muted-foreground font-mono w-8 text-right">/{monthlyTarget}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
                 {/* Objective comparison */}
                 {monthTarget > 0 && (

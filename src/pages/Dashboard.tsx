@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight, Phone, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -14,6 +14,7 @@ import {
   buildSparklineData, getObjectiveTarget, MONTH_NAMES,
   type PeriodType, type Transaction, type Category, type ChartMonth,
   type TopCategory, type QuarterBreakdown, type DashboardData,
+  type ActivityKpi, type ActivityTarget,
 } from '@/lib/dashboard-utils';
 
 export default function Dashboard() {
@@ -88,6 +89,9 @@ export default function Dashboard() {
   const annualTarget = data.annualObjective?.revenue_target ?? 0;
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearTotalRevenue / annualTarget) * 100)) : 0;
 
+  // Activity KPI aggregation
+  const activityAgg = computeActivityAgg(data.activityKpis, data.activityTargets, period, periodValue);
+
   const periodLabel = period === 'year' ? `${year}` : period === 'quarter' ? `T${quarterVal} ${year}` : `${MONTH_NAMES[monthVal - 1]} ${year}`;
 
   return (
@@ -128,7 +132,34 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Annual progress bar (year view only) */}
+      {/* Activity KPI cards */}
+      {activityAgg.hasData && (
+        <div className="grid grid-cols-3 gap-4">
+          {([
+            { emoji: '☎️', label: 'Appels découverte', value: activityAgg.discovery_calls, target: activityAgg.target_discovery_calls, icon: <Phone className="h-4 w-4 text-primary" /> },
+            { emoji: '👥', label: 'Clientes actives', value: activityAgg.active_clients, target: activityAgg.target_active_clients, icon: <Users className="h-4 w-4 text-primary" /> },
+            { emoji: '🎯', label: 'Prospects contactés', value: activityAgg.prospects, target: activityAgg.target_prospects, icon: <Target className="h-4 w-4 text-primary" /> },
+          ] as const).map((item) => {
+            const pct = item.target > 0 ? Math.min(100, Math.round((item.value / item.target) * 100)) : null;
+            return (
+              <div key={item.label} className="bg-card rounded-[20px] shadow-soft p-4 space-y-2 card-hover">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">{item.emoji} {item.label}</span>
+                  {item.icon}
+                </div>
+                <p className="text-2xl font-mono">{item.value}</p>
+                {item.target > 0 && (
+                  <>
+                    <Progress value={pct ?? 0} className="h-1.5 [&>div]:bg-primary" />
+                    <p className="text-[10px] text-muted-foreground font-mono">obj: {item.target}</p>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {period === 'year' && annualTarget > 0 && (
         <AnnualProgressSection
           yearTotalRevenue={yearTotalRevenue} annualTarget={annualTarget} annualPct={annualPct}
@@ -157,6 +188,39 @@ export default function Dashboard() {
       <LatestTransactions transactions={data.transactions} catMap={catMap} />
     </div>
   );
+}
+
+/* ═══════════ Activity aggregation ═══════════ */
+
+function computeActivityAgg(
+  kpis: ActivityKpi[], targets: ActivityTarget[],
+  period: PeriodType, periodValue: number,
+) {
+  let discovery_calls = 0, active_clients = 0, prospects = 0;
+  let target_discovery_calls = 0, target_active_clients = 0, target_prospects = 0;
+
+  if (period === 'month') {
+    const k = kpis.find(k => k.month === periodValue);
+    if (k) { discovery_calls = k.discovery_calls; active_clients = k.active_clients; prospects = k.prospects; }
+    const q = Math.ceil(periodValue / 3);
+    const t = targets.find(t => t.quarter === q);
+    if (t) { target_discovery_calls = Math.round(t.discovery_calls / 3); target_active_clients = Math.round(t.active_clients / 3); target_prospects = Math.round(t.prospects / 3); }
+  } else if (period === 'quarter') {
+    const months = [(periodValue - 1) * 3 + 1, (periodValue - 1) * 3 + 2, (periodValue - 1) * 3 + 3];
+    for (const k of kpis) {
+      if (months.includes(k.month)) { discovery_calls += k.discovery_calls; active_clients += k.active_clients; prospects += k.prospects; }
+    }
+    const t = targets.find(t => t.quarter === periodValue);
+    if (t) { target_discovery_calls = t.discovery_calls; target_active_clients = t.active_clients; target_prospects = t.prospects; }
+  } else {
+    for (const k of kpis) { discovery_calls += k.discovery_calls; active_clients += k.active_clients; prospects += k.prospects; }
+    for (const t of targets) { target_discovery_calls += t.discovery_calls; target_active_clients += t.active_clients; target_prospects += t.prospects; }
+  }
+
+  const hasData = discovery_calls > 0 || active_clients > 0 || prospects > 0 ||
+    target_discovery_calls > 0 || target_active_clients > 0 || target_prospects > 0;
+
+  return { discovery_calls, active_clients, prospects, target_discovery_calls, target_active_clients, target_prospects, hasData };
 }
 
 /* ═══════════ Sub-components ═══════════ */
