@@ -740,6 +740,36 @@ export default function ObjectifsPage() {
                   </div>
                 )}
 
+                {/* Activity KPIs */}
+                <div className="border-t border-border pt-3 space-y-2">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Activité</p>
+                  {ACTIVITY_FIELDS.map(({ key, emoji, label }) => {
+                    const kpi = getActivityForMonth(month);
+                    const target = getActivityTarget(selectedQ);
+                    const monthlyTarget = target ? Math.round(target[key] / 3) : 0;
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-xs">
+                        <span className="shrink-0 w-5 text-center">{emoji}</span>
+                        <span className="flex-1 truncate">{label}</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          defaultValue={kpi?.[key] ?? 0}
+                          placeholder="0"
+                          className="w-14 h-7 text-xs font-mono text-center p-0"
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            if (val !== (kpi?.[key] ?? 0)) upsertActivityKpi(month, key, val);
+                          }}
+                        />
+                        {monthlyTarget > 0 && (
+                          <span className="text-[10px] text-muted-foreground font-mono w-8 text-right">/{monthlyTarget}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Objective comparison */}
                 {monthTarget > 0 && (
                   <div className="space-y-1.5 pt-2">
