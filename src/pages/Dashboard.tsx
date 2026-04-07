@@ -132,7 +132,34 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Annual progress bar (year view only) */}
+      {/* Activity KPI cards */}
+      {activityAgg.hasData && (
+        <div className="grid grid-cols-3 gap-4">
+          {([
+            { emoji: '☎️', label: 'Appels découverte', value: activityAgg.discovery_calls, target: activityAgg.target_discovery_calls, icon: <Phone className="h-4 w-4 text-primary" /> },
+            { emoji: '👥', label: 'Clientes actives', value: activityAgg.active_clients, target: activityAgg.target_active_clients, icon: <Users className="h-4 w-4 text-primary" /> },
+            { emoji: '🎯', label: 'Prospects contactés', value: activityAgg.prospects, target: activityAgg.target_prospects, icon: <Target className="h-4 w-4 text-primary" /> },
+          ] as const).map((item) => {
+            const pct = item.target > 0 ? Math.min(100, Math.round((item.value / item.target) * 100)) : null;
+            return (
+              <div key={item.label} className="bg-card rounded-[20px] shadow-soft p-4 space-y-2 card-hover">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">{item.emoji} {item.label}</span>
+                  {item.icon}
+                </div>
+                <p className="text-2xl font-mono">{item.value}</p>
+                {item.target > 0 && (
+                  <>
+                    <Progress value={pct ?? 0} className="h-1.5 [&>div]:bg-primary" />
+                    <p className="text-[10px] text-muted-foreground font-mono">obj: {item.target}</p>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {period === 'year' && annualTarget > 0 && (
         <AnnualProgressSection
           yearTotalRevenue={yearTotalRevenue} annualTarget={annualTarget} annualPct={annualPct}
