@@ -91,6 +91,10 @@ export default function ObjectifsPage() {
   const [signedDetails, setSignedDetails] = useState<Map<string, SignedDetail[]>>(new Map());
   const [expandedMonths, setExpandedMonths] = useState<Set<number>>(new Set());
 
+  // Activity KPIs
+  const [activityKpis, setActivityKpis] = useState<MonthlyActivityKpi[]>([]);
+  const [activityTargets, setActivityTargets] = useState<QuarterlyActivityTarget[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [savingAnnual, setSavingAnnual] = useState(false);
   const [savingQ, setSavingQ] = useState<number | null>(null);
