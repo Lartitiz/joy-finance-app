@@ -166,7 +166,7 @@ export async function fetchDashboardData(
 
   const txSelect = 'id, date, label, amount, category_id, source, is_validated';
 
-  const [txData, prevTxData, allYearData, catRes, annObjRes, qObjRes, offRes, bankRes, sparkData] = await Promise.all([
+  const [txData, prevTxData, allYearData, catRes, annObjRes, qObjRes, offRes, bankRes, sparkData, actKpiRes, actTargetRes] = await Promise.all([
     fetchPaginated(userId, txSelect, start, end, { column: 'date', ascending: false }),
     fetchPaginated(userId, txSelect, prevRange.start, prevRange.end),
     fetchPaginated(userId, txSelect, yearRange.start, yearRange.end),
@@ -179,6 +179,10 @@ export async function fetchDashboardData(
       .eq('user_id', userId).eq('is_active', true),
     supabase.from('bank_accounts').select('id, name, current_balance').eq('user_id', userId),
     fetchPaginated(userId, 'date, amount', sparkStart, yearRange.end),
+    supabase.from('monthly_activity_kpis').select('year, month, discovery_calls, active_clients, prospects')
+      .eq('user_id', userId).eq('year', year),
+    supabase.from('quarterly_activity_targets').select('quarter, discovery_calls, active_clients, prospects')
+      .eq('user_id', userId).eq('year', year),
   ]);
 
   return {
@@ -191,6 +195,8 @@ export async function fetchDashboardData(
     offers: (offRes.data ?? []) as unknown as Offer[],
     bankAccounts: (bankRes.data ?? []) as BankAccount[],
     sparklineData: sparkData as { date: string; amount: number }[],
+    activityKpis: (actKpiRes.data ?? []) as ActivityKpi[],
+    activityTargets: (actTargetRes.data ?? []) as ActivityTarget[],
   };
 }
 
