@@ -358,7 +358,42 @@ export default function ObjectifsPage() {
     });
   };
 
-  /* ─── Derived ─── */
+  /* ─── Activity KPI helpers ─── */
+  const getActivityForMonth = (month: number) => activityKpis.find(k => k.month === month);
+  const getActivityTarget = (quarter: number) => activityTargets.find(t => t.quarter === quarter);
+
+  const upsertActivityKpi = async (month: number, field: 'discovery_calls' | 'active_clients' | 'prospects', value: number) => {
+    if (!user) return;
+    const existing = getActivityForMonth(month);
+    if (existing?.id) {
+      await supabase.from('monthly_activity_kpis').update({ [field]: value, updated_at: new Date().toISOString() }).eq('id', existing.id);
+    } else {
+      await supabase.from('monthly_activity_kpis').upsert({
+        user_id: user.id, year, month,
+        discovery_calls: field === 'discovery_calls' ? value : 0,
+        active_clients: field === 'active_clients' ? value : 0,
+        prospects: field === 'prospects' ? value : 0,
+      }, { onConflict: 'user_id,year,month' });
+    }
+    load();
+  };
+
+  const upsertActivityTarget = async (quarter: number, field: 'discovery_calls' | 'active_clients' | 'prospects', value: number) => {
+    if (!user) return;
+    const existing = getActivityTarget(quarter);
+    if (existing?.id) {
+      await supabase.from('quarterly_activity_targets').update({ [field]: value }).eq('id', existing.id);
+    } else {
+      await supabase.from('quarterly_activity_targets').upsert({
+        user_id: user.id, year, quarter,
+        discovery_calls: field === 'discovery_calls' ? value : 0,
+        active_clients: field === 'active_clients' ? value : 0,
+        prospects: field === 'prospects' ? value : 0,
+      }, { onConflict: 'user_id,year,quarter' });
+    }
+    load();
+  };
+
   const annualTarget = quarterSummaries.reduce((s, qs) => s + qs.totalProjected, 0);
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearlyActualRevenue / annualTarget) * 100)) : null;
 
