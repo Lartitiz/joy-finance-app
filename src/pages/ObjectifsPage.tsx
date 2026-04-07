@@ -542,6 +542,31 @@ export default function ObjectifsPage() {
                   <Save className="h-3 w-3 mr-1" />
                   {savingQ === qs.quarter ? '…' : `Enregistrer T${qs.quarter}`}
                 </Button>
+
+                {/* Activity targets */}
+                <div className="border-t border-border pt-3 space-y-2">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Objectifs activité</p>
+                  {ACTIVITY_FIELDS.map(({ key, emoji, label }) => {
+                    const target = getActivityTarget(qs.quarter);
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-xs">
+                        <span className="shrink-0 w-5 text-center">{emoji}</span>
+                        <span className="flex-1 truncate">{label}</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          defaultValue={target?.[key] ?? 0}
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            if (val !== (target?.[key] ?? 0)) upsertActivityTarget(qs.quarter, key, val);
+                          }}
+                          className="w-14 h-7 text-xs font-mono text-center p-0"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
