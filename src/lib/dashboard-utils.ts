@@ -124,6 +124,19 @@ async function fetchPaginated(
 
 /* ───── Fetch all dashboard data ───── */
 
+export interface ActivityKpi {
+  discovery_calls: number;
+  active_clients: number;
+  prospects: number;
+}
+
+export interface ActivityTarget {
+  quarter: number;
+  discovery_calls: number;
+  active_clients: number;
+  prospects: number;
+}
+
 export interface DashboardData {
   transactions: Transaction[];
   prevTransactions: Transaction[];
@@ -134,6 +147,8 @@ export interface DashboardData {
   offers: Offer[];
   bankAccounts: BankAccount[];
   sparklineData: { date: string; amount: number }[];
+  activityKpis: ActivityKpi[];
+  activityTargets: ActivityTarget[];
 }
 
 export async function fetchDashboardData(

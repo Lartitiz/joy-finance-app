@@ -130,6 +130,8 @@ export default function ParametresPage() {
       await supabase.from('monthly_objectives').delete().eq('user_id', user.id);
       await supabase.from('monthly_signed_revenue_details').delete().eq('user_id', user.id);
       await supabase.from('monthly_signed_revenue').delete().eq('user_id', user.id);
+      await supabase.from('monthly_activity_kpis').delete().eq('user_id', user.id);
+      await supabase.from('quarterly_activity_targets').delete().eq('user_id', user.id);
       await supabase.from('quarterly_objectives').delete().eq('user_id', user.id);
       await supabase.from('annual_objectives').delete().eq('user_id', user.id);
       await supabase.from('bank_accounts').delete().eq('user_id', user.id);
