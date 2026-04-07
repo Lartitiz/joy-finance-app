@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { ChevronLeft, ChevronRight, Save, Plus, ChevronDown, ChevronUp, Trash2, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Plus, ChevronDown, ChevronUp, Trash2, Info, Phone, Users, Target } from 'lucide-react';
 import { formatEur } from '@/lib/dashboard-utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -39,6 +39,30 @@ interface SignedDetail {
   label: string | null;
   amount: number;
 }
+
+interface MonthlyActivityKpi {
+  id?: string;
+  year: number;
+  month: number;
+  discovery_calls: number;
+  active_clients: number;
+  prospects: number;
+}
+
+interface QuarterlyActivityTarget {
+  id?: string;
+  year: number;
+  quarter: number;
+  discovery_calls: number;
+  active_clients: number;
+  prospects: number;
+}
+
+const ACTIVITY_FIELDS: { key: 'discovery_calls' | 'active_clients' | 'prospects'; icon: typeof Phone; emoji: string; label: string }[] = [
+  { key: 'discovery_calls', icon: Phone, emoji: '☎️', label: 'Appels découverte' },
+  { key: 'active_clients', icon: Users, emoji: '👥', label: 'Clientes actives' },
+  { key: 'prospects', icon: Target, emoji: '🎯', label: 'Prospects contactés' },
+];
 
 const MONTH_NAMES = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
