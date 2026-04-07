@@ -125,6 +125,8 @@ async function fetchPaginated(
 /* ───── Fetch all dashboard data ───── */
 
 export interface ActivityKpi {
+  year: number;
+  month: number;
   discovery_calls: number;
   active_clients: number;
   prospects: number;
