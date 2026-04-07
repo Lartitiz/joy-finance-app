@@ -190,6 +190,39 @@ export default function Dashboard() {
   );
 }
 
+/* ═══════════ Activity aggregation ═══════════ */
+
+function computeActivityAgg(
+  kpis: ActivityKpi[], targets: ActivityTarget[],
+  period: PeriodType, periodValue: number,
+) {
+  let discovery_calls = 0, active_clients = 0, prospects = 0;
+  let target_discovery_calls = 0, target_active_clients = 0, target_prospects = 0;
+
+  if (period === 'month') {
+    const k = kpis.find(k => k.month === periodValue);
+    if (k) { discovery_calls = k.discovery_calls; active_clients = k.active_clients; prospects = k.prospects; }
+    const q = Math.ceil(periodValue / 3);
+    const t = targets.find(t => t.quarter === q);
+    if (t) { target_discovery_calls = Math.round(t.discovery_calls / 3); target_active_clients = Math.round(t.active_clients / 3); target_prospects = Math.round(t.prospects / 3); }
+  } else if (period === 'quarter') {
+    const months = [(periodValue - 1) * 3 + 1, (periodValue - 1) * 3 + 2, (periodValue - 1) * 3 + 3];
+    for (const k of kpis) {
+      if (months.includes(k.month)) { discovery_calls += k.discovery_calls; active_clients += k.active_clients; prospects += k.prospects; }
+    }
+    const t = targets.find(t => t.quarter === periodValue);
+    if (t) { target_discovery_calls = t.discovery_calls; target_active_clients = t.active_clients; target_prospects = t.prospects; }
+  } else {
+    for (const k of kpis) { discovery_calls += k.discovery_calls; active_clients += k.active_clients; prospects += k.prospects; }
+    for (const t of targets) { target_discovery_calls += t.discovery_calls; target_active_clients += t.active_clients; target_prospects += t.prospects; }
+  }
+
+  const hasData = discovery_calls > 0 || active_clients > 0 || prospects > 0 ||
+    target_discovery_calls > 0 || target_active_clients > 0 || target_prospects > 0;
+
+  return { discovery_calls, active_clients, prospects, target_discovery_calls, target_active_clients, target_prospects, hasData };
+}
+
 /* ═══════════ Sub-components ═══════════ */
 
 function Header({ year, setYear, period, setPeriod, quarterVal, setQuarterVal, monthVal, setMonthVal }: {
