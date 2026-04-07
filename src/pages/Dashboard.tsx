@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight, Phone, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -14,6 +14,7 @@ import {
   buildSparklineData, getObjectiveTarget, MONTH_NAMES,
   type PeriodType, type Transaction, type Category, type ChartMonth,
   type TopCategory, type QuarterBreakdown, type DashboardData,
+  type ActivityKpi, type ActivityTarget,
 } from '@/lib/dashboard-utils';
 
 export default function Dashboard() {
