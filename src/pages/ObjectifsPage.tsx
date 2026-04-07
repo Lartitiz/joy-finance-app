@@ -188,6 +188,16 @@ export default function ObjectifsPage() {
       setSignedDetails(new Map());
     }
 
+    // Activity KPIs
+    setActivityKpis((actKpiRes.data ?? []).map((k: any) => ({
+      id: k.id, year: k.year, month: k.month,
+      discovery_calls: k.discovery_calls, active_clients: k.active_clients, prospects: k.prospects,
+    })));
+    setActivityTargets((actTargetRes.data ?? []).map((t: any) => ({
+      id: t.id, year: t.year, quarter: t.quarter,
+      discovery_calls: t.discovery_calls, active_clients: t.active_clients, prospects: t.prospects,
+    })));
+
     setLoading(false);
   }, [user, year, selectedQ]);
 
