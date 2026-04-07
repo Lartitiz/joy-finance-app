@@ -89,6 +89,9 @@ export default function Dashboard() {
   const annualTarget = data.annualObjective?.revenue_target ?? 0;
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearTotalRevenue / annualTarget) * 100)) : 0;
 
+  // Activity KPI aggregation
+  const activityAgg = computeActivityAgg(data.activityKpis, data.activityTargets, period, periodValue);
+
   const periodLabel = period === 'year' ? `${year}` : period === 'quarter' ? `T${quarterVal} ${year}` : `${MONTH_NAMES[monthVal - 1]} ${year}`;
 
   return (
