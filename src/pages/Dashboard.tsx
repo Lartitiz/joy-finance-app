@@ -74,9 +74,9 @@ export default function Dashboard() {
     );
   }
 
-  const kpis = computeKpis(data.transactions, data.prevTransactions);
-  const quarterlyBreakdown = computeQuarterlyBreakdown(data.allYearTransactions, year, data.quarterlyObjectives, data.offers);
-  const chartData = buildMonthlyChartData(data.allYearTransactions, year, data.quarterlyObjectives, data.offers);
+  const kpis = computeKpis(data.transactions, data.prevTransactions, data.categories);
+  const quarterlyBreakdown = computeQuarterlyBreakdown(data.allYearTransactions, year, data.quarterlyObjectives, data.offers, data.categories);
+  const chartData = buildMonthlyChartData(data.allYearTransactions, year, data.quarterlyObjectives, data.offers, data.categories);
   const objTarget = getObjectiveTarget(period, periodValue, data.annualObjective, quarterlyBreakdown);
   const objPct = objTarget ? Math.min(100, Math.round((kpis.revenue / objTarget) * 100)) : null;
   const catMap = new Map(data.categories.map(c => [c.id, c]));
