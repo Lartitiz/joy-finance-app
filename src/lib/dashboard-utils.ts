@@ -204,11 +204,13 @@ export async function fetchDashboardData(
 
 /* ───── KPI computation ───── */
 
-export function computeKpis(transactions: Transaction[], prevTransactions: Transaction[]) {
-  const revenue = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+export function computeKpis(transactions: Transaction[], prevTransactions: Transaction[], categories: Category[]) {
+  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
+  const isRevenue = (t: Transaction) => t.amount > 0 && !!t.category_id && revCatIds.has(t.category_id);
+  const revenue = transactions.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
   const expense = transactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
   const net = revenue - expense;
-  const prevRevenue = prevTransactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const prevRevenue = prevTransactions.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
   const prevExpense = prevTransactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
   return { revenue, expense, net, prevRevenue, prevExpense };
 }
@@ -230,7 +232,9 @@ export function computeQuarterlyBreakdown(
   year: number,
   quarterlyObjectives: QuarterlyObjective[],
   offers: Offer[],
+  categories: Category[],
 ): QuarterBreakdown[] {
+  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
   const quarters = computeAllQuarters(offers, quarterlyObjectives);
   const result: QuarterBreakdown[] = [];
 
@@ -239,7 +243,7 @@ export function computeQuarterlyBreakdown(
     const months = [sm, sm + 1, sm + 2];
     const realRevenue = allYearTransactions
       .filter(t => {
-        if (t.amount <= 0) return false;
+        if (t.amount <= 0 || !t.category_id || !revCatIds.has(t.category_id)) return false;
         const m = parseInt(t.date.slice(5, 7), 10);
         return months.includes(m);
       })
@@ -262,7 +266,9 @@ export function buildMonthlyChartData(
   year: number,
   quarterlyObjectives: QuarterlyObjective[],
   offers: Offer[],
+  categories: Category[],
 ): ChartMonth[] {
+  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
   const now = new Date();
   const currentMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
 
@@ -278,7 +284,7 @@ export function buildMonthlyChartData(
     const q = Math.ceil(m / 3);
     const qObj = objByQuarter.get(q) ?? 0;
     const monthTxs = allYearTransactions.filter(t => parseInt(t.date.slice(5, 7), 10) === m);
-    const revenue = monthTxs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const revenue = monthTxs.filter(t => t.amount > 0 && !!t.category_id && revCatIds.has(t.category_id)).reduce((s, t) => s + t.amount, 0);
     const expense = monthTxs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
     const hasFutureData = revenue === 0 && expense === 0 && (year > now.getFullYear() || (year === now.getFullYear() && m > currentMonth));
 
