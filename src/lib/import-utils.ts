@@ -141,6 +141,49 @@ export interface ParsedTransaction {
   amount: number;
 }
 
+/**
+ * Clé de dédoublonnage robuste : on normalise le libellé (espaces multiples,
+ * casse) et le montant (2 décimales fixes) pour que le même mouvement soit
+ * reconnu même si la banque a légèrement changé sa mise en forme, ou si la base
+ * renvoie le montant en chaîne plutôt qu'en nombre.
+ */
+export function dedupKey(t: { date: string; label: string; amount: number | string }): string {
+  const label = String(t.label ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const amount = Number(t.amount);
+  const amountKey = Number.isFinite(amount) ? amount.toFixed(2) : String(t.amount);
+  return `${t.date}|${label}|${amountKey}`;
+}
+
+/**
+ * Sépare les transactions entrantes en "nouvelles" et "doublons" en tenant
+ * compte du NOMBRE d'occurrences déjà présentes. Si la base contient déjà 1
+ * exemplaire d'un mouvement et que le fichier en apporte 2, un seul est
+ * considéré comme doublon — le second (légitime) est bien importé.
+ */
+export function splitDuplicates(
+  incoming: ParsedTransaction[],
+  existing: { date: string; label: string; amount: number | string }[],
+): { fresh: ParsedTransaction[]; dupes: ParsedTransaction[] } {
+  const remaining = new Map<string, number>();
+  for (const e of existing) {
+    const k = dedupKey(e);
+    remaining.set(k, (remaining.get(k) ?? 0) + 1);
+  }
+  const fresh: ParsedTransaction[] = [];
+  const dupes: ParsedTransaction[] = [];
+  for (const t of incoming) {
+    const k = dedupKey(t);
+    const left = remaining.get(k) ?? 0;
+    if (left > 0) {
+      remaining.set(k, left - 1);
+      dupes.push(t);
+    } else {
+      fresh.push(t);
+    }
+  }
+  return { fresh, dupes };
+}
+
 export function applyMapping(
   rows: RawRow[],
   mapping: Record<string, ColumnMapping>
