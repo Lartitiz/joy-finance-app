@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight, Phone, Users } from 'lucide-react';
+import { TrendingUp, TrendingDown, Scale, Target, ChevronLeft, ChevronRight, Phone, Users, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -11,7 +11,7 @@ import {
 import {
   fetchDashboardData, computeKpis, computeVariation, formatEur,
   buildMonthlyChartData, computeQuarterlyBreakdown, computeTopCategories,
-  buildSparklineData, getObjectiveTarget, MONTH_NAMES,
+  buildSparklineData, getObjectiveTarget, computeUncategorizedIncome, MONTH_NAMES,
   type PeriodType, type Transaction, type Category, type ChartMonth,
   type TopCategory, type QuarterBreakdown, type DashboardData,
   type ActivityKpi, type ActivityTarget,
@@ -85,7 +85,9 @@ export default function Dashboard() {
   const totalBalance = data.bankAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
   const sparkline = buildSparklineData(data.sparklineData);
 
-  const yearTotalRevenue = data.allYearTransactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  // CA annuel = exactement la somme des 4 trimestres (même filtre "revenu"),
+  // pour qu'aucun total à l'écran ne se contredise.
+  const yearTotalRevenue = quarterlyBreakdown.reduce((s, qb) => s + qb.realRevenue, 0);
   const annualTarget = data.annualObjective?.revenue_target ?? 0;
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearTotalRevenue / annualTarget) * 100)) : 0;
 
@@ -94,15 +96,35 @@ export default function Dashboard() {
 
   const periodLabel = period === 'year' ? `${year}` : period === 'quarter' ? `T${quarterVal} ${year}` : `${MONTH_NAMES[monthVal - 1]} ${year}`;
 
+  // Rentrées non classées sur la période affichée → pas comptées dans le CA
+  const uncategorizedIncome = computeUncategorizedIncome(data.transactions);
+
   return (
     <div className="space-y-8">
       <Header year={year} setYear={setYear} period={period} setPeriod={setPeriod}
         quarterVal={quarterVal} setQuarterVal={setQuarterVal}
         monthVal={monthVal} setMonthVal={setMonthVal} />
 
+      {/* Alerte : rentrées d'argent non classées, donc absentes du CA */}
+      {uncategorizedIncome.count > 0 && (
+        <Link to="/categories"
+          className="flex items-start gap-3 bg-yellow-50 border-2 border-secondary rounded-[20px] p-4 hover:shadow-md transition-shadow">
+          <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-medium text-accent">
+              {uncategorizedIncome.count} rentrée{uncategorizedIncome.count > 1 ? 's' : ''} d'argent non classée{uncategorizedIncome.count > 1 ? 's' : ''} sur {periodLabel}
+              {' '}<span className="font-mono">({formatEur(uncategorizedIncome.total)})</span>
+            </p>
+            <p className="text-muted-foreground">
+              Ces sommes ne sont <strong>pas comptées dans ton CA</strong>. Classe-les avant de déclarer pour ne rien oublier. →
+            </p>
+          </div>
+        </Link>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="CA cumulé" value={formatEur(kpis.revenue)}
+        <KpiCard label={period === 'year' ? 'CA cumulé' : period === 'quarter' ? `CA du trimestre` : 'CA du mois'} value={formatEur(kpis.revenue)}
           variation={`${computeVariation(kpis.revenue, kpis.prevRevenue)} vs ${year - 1}`}
           positive={kpis.revenue >= kpis.prevRevenue}
           icon={<TrendingUp className="h-5 w-5 text-green-500" />} />
