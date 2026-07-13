@@ -5,6 +5,7 @@ import {
   Target,
   Wallet,
   Settings,
+  Receipt,
   LogOut,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
@@ -28,6 +29,7 @@ const items = [
   { title: 'Catégories', url: '/categories', icon: Tags },
   { title: 'Objectifs', url: '/objectifs', icon: Target },
   { title: 'Trésorerie', url: '/tresorerie', icon: Wallet },
+  { title: 'Déclaration', url: '/declaration', icon: Receipt },
   { title: 'Paramètres', url: '/parametres', icon: Settings },
 ];
 

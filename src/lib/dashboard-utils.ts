@@ -202,6 +202,24 @@ export async function fetchDashboardData(
   };
 }
 
+/* ───── Declaration data (year transactions + categories) ───── */
+
+export async function fetchDeclarationData(
+  userId: string,
+  year: number,
+): Promise<{ allYearTransactions: Transaction[]; categories: Category[] }> {
+  const yearRange = getDateRange(year, 'year', 0);
+  const txSelect = 'id, date, label, amount, category_id, source, is_validated';
+  const [allYearData, catRes] = await Promise.all([
+    fetchPaginated(userId, txSelect, yearRange.start, yearRange.end, { column: 'date', ascending: true }),
+    supabase.from('categories').select('id, name, emoji, color, type').eq('user_id', userId),
+  ]);
+  return {
+    allYearTransactions: allYearData as Transaction[],
+    categories: (catRes.data ?? []) as Category[],
+  };
+}
+
 /* ───── KPI computation ───── */
 
 export function computeKpis(transactions: Transaction[], prevTransactions: Transaction[], categories: Category[]) {
