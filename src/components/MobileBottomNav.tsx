@@ -1,4 +1,4 @@
-import { BarChart3, Download, Tags, Target, Wallet, Settings } from 'lucide-react';
+import { BarChart3, Download, Tags, Target, Wallet, Receipt, Settings } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 
 const items = [
@@ -7,6 +7,7 @@ const items = [
   { title: 'Catégories', url: '/categories', icon: Tags },
   { title: 'Objectifs', url: '/objectifs', icon: Target },
   { title: 'Trésorerie', url: '/tresorerie', icon: Wallet },
+  { title: 'Déclarer', url: '/declaration', icon: Receipt },
   { title: 'Réglages', url: '/parametres', icon: Settings },
 ];
 
