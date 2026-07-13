@@ -3,8 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Sparkles, CheckCircle, Check, ChevronDown, ChevronUp } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Sparkles, CheckCircle, Check, ChevronDown, ChevronUp, Lightbulb, X, Zap } from 'lucide-react';
+import { extractKeyword, matchRule, type CategorizationRule } from '@/lib/rule-utils';
 
 interface Transaction {
   id: string;
@@ -34,6 +34,12 @@ interface SuggestionRow extends Transaction {
   suggested_category_id: string;
   selected_category_id: string;
   confidence: 'high' | 'medium' | 'low';
+  origin: 'rule' | 'ai';
+}
+
+interface LearnedRule {
+  rule: CategorizationRule;
+  category_id: string;
 }
 
 export function CategorizeTransactions() {
@@ -41,11 +47,13 @@ export function CategorizeTransactions() {
   const [uncategorized, setUncategorized] = useState<Transaction[]>([]);
   const [categorized, setCategorized] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [rules, setRules] = useState<CategorizationRule[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [showCategorized, setShowCategorized] = useState(false);
   const [categorizedThisMonth, setCategorizedThisMonth] = useState(0);
+  const [lastLearned, setLastLearned] = useState<LearnedRule | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -55,7 +63,7 @@ export function CategorizeTransactions() {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const [txRes, catRes, catThisMonthRes] = await Promise.all([
+    const [txRes, catRes, catThisMonthRes, rulesRes] = await Promise.all([
       supabase
         .from('transactions')
         .select('id, date, label, amount, category_id, is_validated, source')
@@ -73,6 +81,10 @@ export function CategorizeTransactions() {
         .not('category_id', 'is', null)
         .eq('is_validated', true)
         .gte('created_at', startOfMonth.toISOString()),
+      supabase
+        .from('categorization_rules')
+        .select('id, keyword, category_id, match_count')
+        .eq('user_id', user.id),
     ]);
 
     if (txRes.data) {
@@ -80,6 +92,7 @@ export function CategorizeTransactions() {
       setCategorized(txRes.data.filter((t) => t.category_id));
     }
     if (catRes.data) setCategories(catRes.data);
+    if (rulesRes.data) setRules(rulesRes.data);
     setCategorizedThisMonth(catThisMonthRes.count ?? 0);
     setLoading(false);
   }, [user]);
@@ -87,6 +100,71 @@ export function CategorizeTransactions() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Apprend (ou renforce) une règle à partir d'une correction manuelle.
+  const learnRule = async (label: string, categoryId: string) => {
+    if (!user) return;
+    const keyword = extractKeyword(label);
+    if (!keyword) return; // libellé trop pauvre pour en tirer un mot-clé sûr
+
+    const existing = rules.find((r) => r.keyword === keyword);
+
+    if (existing) {
+      const nextCount = existing.match_count + 1;
+      const { data, error } = await supabase
+        .from('categorization_rules')
+        .update({ category_id: categoryId, match_count: nextCount, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+        .select('id, keyword, category_id, match_count')
+        .single();
+      if (error || !data) return;
+      setRules((prev) => prev.map((r) => (r.id === data.id ? data : r)));
+      setLastLearned({ rule: data, category_id: categoryId });
+    } else {
+      const { data, error } = await supabase
+        .from('categorization_rules')
+        .insert({ user_id: user.id, keyword, category_id: categoryId })
+        .select('id, keyword, category_id, match_count')
+        .single();
+      if (error || !data) return;
+      setRules((prev) => [...prev, data]);
+      setLastLearned({ rule: data, category_id: categoryId });
+    }
+  };
+
+  // Modifie le mot-clé de la dernière règle apprise (bulle éditable).
+  const updateLearnedKeyword = async (newKeyword: string) => {
+    if (!lastLearned) return;
+    const kw = newKeyword.trim().toUpperCase();
+    if (!kw) return;
+    const { data, error } = await supabase
+      .from('categorization_rules')
+      .update({ keyword: kw, updated_at: new Date().toISOString() })
+      .eq('id', lastLearned.rule.id)
+      .select('id, keyword, category_id, match_count')
+      .single();
+    if (error || !data) {
+      toast.error('Ce mot-clé existe déjà dans une autre règle');
+      return;
+    }
+    setRules((prev) => prev.map((r) => (r.id === data.id ? data : r)));
+    setLastLearned({ rule: data, category_id: data.category_id });
+    toast.success('Mot-clé de la règle modifié');
+  };
+
+  // Annule la dernière règle apprise.
+  const cancelLearnedRule = async () => {
+    if (!lastLearned) return;
+    const id = lastLearned.rule.id;
+    setLastLearned(null);
+    const { error } = await supabase.from('categorization_rules').delete().eq('id', id);
+    if (error) {
+      toast.error("Impossible d'annuler la règle");
+      return;
+    }
+    setRules((prev) => prev.filter((r) => r.id !== id));
+    toast.success('Règle annulée');
+  };
 
   const handleAiCategorize = async () => {
     if (uncategorized.length === 0) {
@@ -97,44 +175,78 @@ export function CategorizeTransactions() {
     setAiLoading(true);
     const batch = uncategorized.slice(0, 50);
 
+    // 1. On applique d'abord les règles apprises (déterministe, gratuit, instantané).
+    const ruleRows: SuggestionRow[] = [];
+    const toAsk: Transaction[] = [];
+    for (const t of batch) {
+      const rule = matchRule(t.label, rules);
+      if (rule) {
+        ruleRows.push({
+          ...t,
+          suggested_category_id: rule.category_id,
+          selected_category_id: rule.category_id,
+          confidence: 'high',
+          origin: 'rule',
+        });
+      } else {
+        toAsk.push(t);
+      }
+    }
+
+    // 2. On ne sollicite l'IA que sur ce que les règles n'ont pas reconnu.
     try {
-      const { data, error } = await supabase.functions.invoke('categorize-transactions', {
-        body: {
-          transactions: batch.map((t) => ({
-            id: t.id,
-            date: t.date,
-            label: t.label,
-            amount: t.amount,
-          })),
-          categories: categories.map((c) => ({
-            id: c.id,
-            name: c.name,
-            emoji: c.emoji,
-            type: c.type,
-          })),
-        },
-      });
+      let aiSuggestions: AiSuggestion[] = [];
+      if (toAsk.length > 0) {
+        const { data, error } = await supabase.functions.invoke('categorize-transactions', {
+          body: {
+            transactions: toAsk.map((t) => ({
+              id: t.id,
+              date: t.date,
+              label: t.label,
+              amount: t.amount,
+            })),
+            categories: categories.map((c) => ({
+              id: c.id,
+              name: c.name,
+              emoji: c.emoji,
+              type: c.type,
+            })),
+          },
+        });
+        if (error) throw error;
+        aiSuggestions = data.suggestions || [];
+      }
 
-      if (error) throw error;
-
-      const aiSuggestions: AiSuggestion[] = data.suggestions || [];
       const suggestionMap = new Map(aiSuggestions.map((s) => [s.transaction_id, s]));
-
-      const rows: SuggestionRow[] = batch.map((t) => {
+      const aiRows: SuggestionRow[] = toAsk.map((t) => {
         const s = suggestionMap.get(t.id);
         return {
           ...t,
           suggested_category_id: s?.suggested_category_id || '',
           selected_category_id: s?.suggested_category_id || '',
           confidence: s?.confidence || 'low',
+          origin: 'ai',
         };
       });
 
-      setSuggestions(rows);
-      toast.success(`${aiSuggestions.length} suggestions générées !`);
-    } catch (err: any) {
+      setSuggestions([...ruleRows, ...aiRows]);
+
+      if (ruleRows.length > 0 && aiRows.length > 0) {
+        toast.success(`${ruleRows.length} par tes règles, ${aiRows.length} par l'IA`);
+      } else if (ruleRows.length > 0) {
+        toast.success(`${ruleRows.length} reconnue${ruleRows.length !== 1 ? 's' : ''} par tes règles`);
+      } else {
+        toast.success(`${aiRows.length} suggestion${aiRows.length !== 1 ? 's' : ''} générée${aiRows.length !== 1 ? 's' : ''}`);
+      }
+    } catch (err) {
       console.error(err);
-      toast.error(err.message || "Erreur lors de l'appel IA");
+      // Même si l'IA échoue, on garde les lignes reconnues par les règles.
+      if (ruleRows.length > 0) {
+        setSuggestions(ruleRows);
+        toast.warning(`IA indisponible — ${ruleRows.length} ligne(s) reconnues par tes règles`);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Erreur lors de l'appel IA");
+      }
     } finally {
       setAiLoading(false);
     }
@@ -149,13 +261,14 @@ export function CategorizeTransactions() {
   const validateOne = async (row: SuggestionRow) => {
     if (!row.selected_category_id) return;
     const isManual = row.selected_category_id !== row.suggested_category_id;
+    const source = isManual ? 'manual' : row.origin === 'rule' ? 'rule' : 'ai_suggested';
 
     const { error } = await supabase
       .from('transactions')
       .update({
         category_id: row.selected_category_id,
         is_validated: true,
-        source: isManual ? 'manual' : 'ai_suggested',
+        source,
       })
       .eq('id', row.id);
 
@@ -164,40 +277,48 @@ export function CategorizeTransactions() {
       return;
     }
 
+    // Une correction manuelle nourrit les règles.
+    if (isManual) await learnRule(row.label, row.selected_category_id);
+
     setSuggestions((prev) => prev.filter((s) => s.id !== row.id));
     toast.success('Transaction catégorisée');
     fetchData();
   };
 
-  const validateBulk = async (filter?: 'high') => {
-    const toValidate = filter
-      ? suggestions.filter((s) => s.confidence === 'high' && s.selected_category_id)
-      : suggestions.filter((s) => s.selected_category_id);
+  const validateBulk = async (filter?: 'high' | 'rule') => {
+    const toValidate =
+      filter === 'rule'
+        ? suggestions.filter((s) => s.origin === 'rule' && s.selected_category_id)
+        : filter === 'high'
+        ? suggestions.filter((s) => s.confidence === 'high' && s.selected_category_id)
+        : suggestions.filter((s) => s.selected_category_id);
 
     if (toValidate.length === 0) return;
 
     let successCount = 0;
     for (const row of toValidate) {
       const isManual = row.selected_category_id !== row.suggested_category_id;
+      const source = isManual ? 'manual' : row.origin === 'rule' ? 'rule' : 'ai_suggested';
       const { error } = await supabase
         .from('transactions')
         .update({
           category_id: row.selected_category_id,
           is_validated: true,
-          source: isManual ? 'manual' : 'ai_suggested',
+          source,
         })
         .eq('id', row.id);
-      if (!error) successCount++;
+      if (!error) {
+        successCount++;
+        if (isManual) await learnRule(row.label, row.selected_category_id);
+      }
     }
 
-    setSuggestions((prev) =>
-      prev.filter((s) => !toValidate.some((v) => v.id === s.id))
-    );
+    setSuggestions((prev) => prev.filter((s) => !toValidate.some((v) => v.id === s.id)));
     toast.success(`${successCount} transactions catégorisées`);
     fetchData();
   };
 
-  const recategorize = async (txId: string, categoryId: string) => {
+  const recategorize = async (txId: string, categoryId: string, label: string) => {
     const { error } = await supabase
       .from('transactions')
       .update({
@@ -211,6 +332,7 @@ export function CategorizeTransactions() {
       toast.error('Erreur');
       return;
     }
+    if (categoryId) await learnRule(label, categoryId);
     toast.success('Catégorie mise à jour');
     fetchData();
   };
@@ -221,8 +343,15 @@ export function CategorizeTransactions() {
     return cat ? `${cat.emoji || ''} ${cat.name}` : '—';
   };
 
-  const confidenceBadge = (c: string) => {
-    switch (c) {
+  const confidenceBadge = (row: SuggestionRow) => {
+    if (row.origin === 'rule') {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary">
+          <Zap className="h-3 w-3" /> règle
+        </span>
+      );
+    }
+    switch (row.confidence) {
       case 'high':
         return <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">haute</span>;
       case 'medium':
@@ -231,6 +360,8 @@ export function CategorizeTransactions() {
         return <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700">faible</span>;
     }
   };
+
+  const ruleCount = suggestions.filter((s) => s.origin === 'rule').length;
 
   if (loading) {
     return (
@@ -242,6 +373,35 @@ export function CategorizeTransactions() {
 
   return (
     <div className="space-y-6">
+      {/* Bulle : règle apprise (mot-clé éditable) */}
+      {lastLearned && (
+        <div className="rounded-[16px] bg-green-50 border border-green-200 p-3 flex flex-wrap items-center gap-2">
+          <Lightbulb className="h-4 w-4 text-green-600 shrink-0" />
+          <span className="text-sm text-green-700">Règle apprise : libellé contient</span>
+          <input
+            defaultValue={lastLearned.rule.keyword}
+            key={lastLearned.rule.id + lastLearned.rule.keyword}
+            onBlur={(e) => {
+              const v = e.target.value.trim().toUpperCase();
+              if (v && v !== lastLearned.rule.keyword) updateLearnedKeyword(v);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+            className="font-mono text-xs bg-background border border-green-300 rounded px-2 py-0.5 w-32 focus:ring-2 focus:ring-green-400"
+            aria-label="Mot-clé de la règle"
+          />
+          <span className="text-sm text-green-700">→ {getCategoryLabel(lastLearned.category_id)}</span>
+          <span className="flex-1" />
+          <button
+            onClick={cancelLearnedRule}
+            className="text-xs text-green-700 hover:text-green-900 inline-flex items-center gap-1"
+          >
+            <X className="h-3 w-3" /> annuler
+          </button>
+        </div>
+      )}
+
       {/* Stats bar */}
       <div className="flex flex-wrap gap-3 items-center">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary px-4 py-1.5 text-sm font-medium">
@@ -251,6 +411,12 @@ export function CategorizeTransactions() {
           <CheckCircle className="h-3.5 w-3.5" />
           {categorizedThisMonth} catégorisée{categorizedThisMonth !== 1 ? 's' : ''} ce mois
         </span>
+        {rules.length > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted text-muted-foreground px-4 py-1.5 text-sm font-medium">
+            <Zap className="h-3.5 w-3.5" />
+            {rules.length} règle{rules.length !== 1 ? 's' : ''} apprise{rules.length !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       {/* AI button */}
@@ -275,8 +441,14 @@ export function CategorizeTransactions() {
       {suggestions.length > 0 && !aiLoading && (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2 items-center">
-            <h3 className="text-lg text-accent">Suggestions de l'IA</h3>
+            <h3 className="text-lg text-accent">Suggestions</h3>
             <div className="flex-1" />
+            {ruleCount > 0 && (
+              <Button size="sm" variant="outline" onClick={() => validateBulk('rule')}>
+                <Zap className="h-3.5 w-3.5 mr-1" />
+                Valider les règles ({ruleCount})
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => validateBulk('high')}>
               <Check className="h-3.5 w-3.5 mr-1" />
               Valider les high confidence
@@ -296,7 +468,7 @@ export function CategorizeTransactions() {
                     <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Libellé</th>
                     <th className="text-right px-4 py-3 text-xs text-muted-foreground font-medium">Montant</th>
                     <th className="text-left px-4 py-3 text-xs text-muted-foreground font-medium">Catégorie suggérée</th>
-                    <th className="text-center px-4 py-3 text-xs text-muted-foreground font-medium">Confiance</th>
+                    <th className="text-center px-4 py-3 text-xs text-muted-foreground font-medium">Origine</th>
                     <th className="text-center px-4 py-3 text-xs text-muted-foreground font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -322,7 +494,7 @@ export function CategorizeTransactions() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-2.5 text-center">{confidenceBadge(row.confidence)}</td>
+                      <td className="px-4 py-2.5 text-center">{confidenceBadge(row)}</td>
                       <td className="px-4 py-2.5 text-center">
                         <button
                           onClick={() => validateOne(row)}
@@ -376,7 +548,7 @@ export function CategorizeTransactions() {
                         <td className="px-4 py-2.5">
                           <select
                             value={t.category_id || ''}
-                            onChange={(e) => recategorize(t.id, e.target.value)}
+                            onChange={(e) => recategorize(t.id, e.target.value, t.label)}
                             className="w-full max-w-[200px] rounded-lg border border-border bg-background px-2 py-1 text-xs focus:ring-2 focus:ring-ring"
                           >
                             <option value="">— Aucune —</option>
