@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CategorizeTransactions } from '@/components/categories/CategorizeTransactions';
 import { CategoryList } from '@/components/categories/CategoryList';
+import { CategorizationRules } from '@/components/categories/CategorizationRules';
 
 export default function CategoriesPage() {
   return (
@@ -11,6 +12,7 @@ export default function CategoriesPage() {
         <TabsList>
           <TabsTrigger value="list">Mes catégories</TabsTrigger>
           <TabsTrigger value="categorize">Catégoriser mes transactions</TabsTrigger>
+          <TabsTrigger value="rules">Mes règles</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-6">
@@ -19,6 +21,10 @@ export default function CategoriesPage() {
 
         <TabsContent value="categorize" className="mt-6">
           <CategorizeTransactions />
+        </TabsContent>
+
+        <TabsContent value="rules" className="mt-6">
+          <CategorizationRules />
         </TabsContent>
       </Tabs>
     </div>
