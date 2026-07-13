@@ -6,6 +6,7 @@ import {
   parseFile,
   autoMapColumns,
   applyMapping,
+  splitDuplicates,
   ColumnMapping,
   RawRow,
   ParsedTransaction,
@@ -73,13 +74,8 @@ export default function ImportPage() {
         .eq('user_id', user.id);
 
       if (existing && existing.length > 0) {
-        const existingSet = new Set(
-          existing.map((e) => `${e.date}|${e.label}|${e.amount}`)
-        );
-        const dupes = txns.filter(
-          (t) => existingSet.has(`${t.date}|${t.label}|${t.amount}`)
-        ).length;
-        setDuplicateCount(dupes);
+        const { dupes } = splitDuplicates(txns, existing);
+        setDuplicateCount(dupes.length);
       } else {
         setDuplicateCount(0);
       }
@@ -104,12 +100,7 @@ export default function ImportPage() {
           .eq('user_id', user.id);
 
         if (existing) {
-          const existingSet = new Set(
-            existing.map((e) => `${e.date}|${e.label}|${e.amount}`)
-          );
-          txnsToImport = transactions.filter(
-            (t) => !existingSet.has(`${t.date}|${t.label}|${t.amount}`)
-          );
+          txnsToImport = splitDuplicates(transactions, existing).fresh;
         }
       }
 
