@@ -215,6 +215,19 @@ export function computeKpis(transactions: Transaction[], prevTransactions: Trans
   return { revenue, expense, net, prevRevenue, prevExpense };
 }
 
+/**
+ * Rentrées d'argent (montant positif) qui ne sont PAS comptées dans le CA
+ * parce qu'elles n'ont pas encore de catégorie. Sert à alerter avant une
+ * déclaration : ces sommes existent sur le compte mais sont invisibles du CA.
+ */
+export function computeUncategorizedIncome(transactions: Transaction[]): { count: number; total: number } {
+  const positives = transactions.filter(t => t.amount > 0 && !t.category_id);
+  return {
+    count: positives.length,
+    total: positives.reduce((s, t) => s + t.amount, 0),
+  };
+}
+
 export function computeVariation(current: number, previous: number): string {
   if (previous === 0) return current > 0 ? '+100%' : '—';
   const pct = ((current - previous) / Math.abs(previous)) * 100;
