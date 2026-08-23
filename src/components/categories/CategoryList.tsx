@@ -52,9 +52,10 @@ export function CategoryList() {
     const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
     const [catRes, txRes] = await Promise.all([
+      // monthly_cap omis tant que la migration n'est pas synchronisée (voir handleSave).
       supabase
         .from('categories')
-        .select('id, name, emoji, color, type, is_default, sort_order, monthly_cap')
+        .select('id, name, emoji, color, type, is_default, sort_order')
         .eq('user_id', user.id)
         .order('sort_order')
         .order('name'),
@@ -101,10 +102,14 @@ export function CategoryList() {
   const handleSave = async (data: { name: string; emoji: string; color: string; type: string; monthly_cap: number | null }) => {
     if (!user) return;
 
+    // monthly_cap est temporairement omis des écritures : la colonne n'existe pas
+    // encore côté Supabase tant que la migration n'a pas été synchronisée via
+    // Lovable. La sauvegarder ici ferait échouer TOUTE création/édition de
+    // catégorie. À rebrancher (voir dashboard-utils.ts) une fois la migration live.
     if (editingCategory) {
       const { error } = await supabase
         .from('categories')
-        .update({ name: data.name, emoji: data.emoji, color: data.color, type: data.type, monthly_cap: data.monthly_cap })
+        .update({ name: data.name, emoji: data.emoji, color: data.color, type: data.type })
         .eq('id', editingCategory.id);
       if (error) {
         toast.error(error.message.includes('unique') ? 'Ce nom de catégorie existe déjà.' : error.message);
@@ -122,7 +127,6 @@ export function CategoryList() {
         emoji: data.emoji,
         color: data.color,
         type: data.type,
-        monthly_cap: data.monthly_cap,
         sort_order: maxOrder + 1,
       });
       if (error) {
