@@ -20,6 +20,14 @@ import {
 
 const Q_LABELS = ['Jan — Mar', 'Avr — Jun', 'Jul — Sep', 'Oct — Déc'];
 
+// Seuils de franchise en base de TVA pour les prestations de services (BNC/BIC) :
+// en-dessous de la limite de base tu n'es pas redevable de la TVA ; entre les deux
+// limites tu peux encore en être dispensée jusqu'à la fin de l'année en cours ;
+// au-dessus de la limite majorée, la TVA s'applique dès le 1er jour du dépassement.
+// Indicatif — vérifie toujours ta situation exacte sur impots.gouv.fr.
+const TVA_LIMITE_BASE = 37500;
+const TVA_LIMITE_MAJOREE = 41250;
+
 export default function DeclarationPage() {
   const { user } = useAuth();
   const now = new Date();
@@ -59,7 +67,10 @@ export default function DeclarationPage() {
   const caRaw = quarterRevenueRaw(allYearTransactions, categories, quarter);
   const est = estimateCotisations(caRaw, settings);
   const uncat = quarterUncategorized(allYearTransactions, quarter);
-  const threshold = thresholdStatus(yearRevenueRaw(allYearTransactions, categories), settings.plafond);
+  const yearRevenue = yearRevenueRaw(allYearTransactions, categories);
+  const threshold = thresholdStatus(yearRevenue, settings.plafond);
+  const tvaBase = thresholdStatus(yearRevenue, TVA_LIMITE_BASE);
+  const tvaMajoree = thresholdStatus(yearRevenue, TVA_LIMITE_MAJOREE);
 
   const copyCA = async () => {
     try {
@@ -179,6 +190,17 @@ export default function DeclarationPage() {
             )}
           </div>
 
+          {/* Seuils de TVA */}
+          <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
+            <h2 className="text-lg text-accent">Seuils de franchise en base de TVA {year}</h2>
+            <TvaGaugeRow label="Limite de base" amount={TVA_LIMITE_BASE} status={tvaBase} />
+            <TvaGaugeRow label="Limite majorée" amount={TVA_LIMITE_MAJOREE} status={tvaMajoree} />
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              Au-dessus de la limite majorée, tu deviens redevable de la TVA dès le 1er jour du dépassement. Entre les deux limites, tu peux encore en être dispensée jusqu'à la fin de l'année. Vérifie ta situation exacte sur impots.gouv.fr.
+            </p>
+          </div>
+
           {/* Réglages */}
           <details className="bg-card rounded-[20px] shadow-soft p-6 group">
             <summary className="cursor-pointer text-lg text-accent list-none flex items-center justify-between">
@@ -242,6 +264,24 @@ function Line({ label, value }: { label: string; value: number }) {
     <div className="flex items-center justify-between">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono text-accent">{value.toLocaleString('fr-FR')} €</span>
+    </div>
+  );
+}
+
+function TvaGaugeRow({ label, amount, status }: {
+  label: string; amount: number;
+  status: { yearRevenue: number; pct: number; warn: boolean; over: boolean; remaining: number };
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">{label} — {amount.toLocaleString('fr-FR')} €</span>
+        <span className={`font-mono ${status.over ? 'text-destructive' : status.warn ? 'text-yellow-600' : 'text-muted-foreground'}`}>
+          {Math.round(status.pct)} %
+        </span>
+      </div>
+      <Progress value={Math.min(100, status.pct)}
+        className={`h-2 ${status.over ? '[&>div]:bg-destructive' : status.warn ? '[&>div]:bg-yellow-500' : '[&>div]:bg-primary'}`} />
     </div>
   );
 }

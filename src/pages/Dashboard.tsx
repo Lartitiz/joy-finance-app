@@ -77,7 +77,7 @@ export default function Dashboard() {
   const kpis = computeKpis(data.transactions, data.prevTransactions, data.categories);
   const quarterlyBreakdown = computeQuarterlyBreakdown(data.allYearTransactions, year, data.quarterlyObjectives, data.offers, data.categories);
   const chartData = buildMonthlyChartData(data.allYearTransactions, year, data.quarterlyObjectives, data.offers, data.categories);
-  const objTarget = getObjectiveTarget(period, periodValue, data.annualObjective, quarterlyBreakdown);
+  const objTarget = getObjectiveTarget(period, periodValue, quarterlyBreakdown);
   const objPct = objTarget ? Math.min(100, Math.round((kpis.revenue / objTarget) * 100)) : null;
   const catMap = new Map(data.categories.map(c => [c.id, c]));
   const topRevenues = computeTopCategories(data.transactions, data.categories, 'revenue', 10);
@@ -88,7 +88,9 @@ export default function Dashboard() {
   // CA annuel = exactement la somme des 4 trimestres (même filtre "revenu"),
   // pour qu'aucun total à l'écran ne se contredise.
   const yearTotalRevenue = quarterlyBreakdown.reduce((s, qb) => s + qb.realRevenue, 0);
-  const annualTarget = data.annualObjective?.revenue_target ?? 0;
+  // Objectif annuel = somme des 4 objectifs trimestriels auto-calculés — le même
+  // nombre que celui affiché sur la page Objectifs (plus de champ figé séparé).
+  const annualTarget = quarterlyBreakdown.reduce((s, qb) => s + qb.objectiveRevenue, 0);
   const annualPct = annualTarget > 0 ? Math.min(100, Math.round((yearTotalRevenue / annualTarget) * 100)) : 0;
 
   // Activity KPI aggregation
@@ -132,6 +134,12 @@ export default function Dashboard() {
           variation={`${computeVariation(kpis.expense, kpis.prevExpense)} vs ${year - 1}`}
           positive={kpis.expense <= kpis.prevExpense}
           icon={<TrendingDown className="h-5 w-5 text-destructive" />} />
+        {kpis.remuneration > 0 && (
+          <KpiCard label="Rémunération" value={formatEur(kpis.remuneration)}
+            variation="ce que tu t'es reversé — hors dépenses"
+            positive={true}
+            icon={<Scale className="h-5 w-5 text-muted-foreground" />} />
+        )}
         <KpiCard label="Résultat net" value={formatEur(kpis.net)}
           variation="" positive={kpis.net >= 0}
           icon={<Scale className="h-5 w-5 text-primary" />}

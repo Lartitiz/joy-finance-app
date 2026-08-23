@@ -21,12 +21,7 @@ export interface Category {
   emoji: string | null;
   color: string | null;
   type: string;
-}
-
-export interface AnnualObjective {
-  id: string;
-  year: number;
-  revenue_target: number;
+  monthly_cap?: number | null;
 }
 
 export interface BankAccount {
@@ -144,8 +139,7 @@ export interface DashboardData {
   prevTransactions: Transaction[];
   allYearTransactions: Transaction[];
   categories: Category[];
-  annualObjective: AnnualObjective | null;
-  quarterlyObjectives: QuarterlyObjective[];
+  quarterlyObjectives: QuarterlyObjective[]; // ALL years (needed for cross-year recurring carry-over)
   offers: Offer[];
   bankAccounts: BankAccount[];
   sparklineData: { date: string; amount: number }[];
@@ -168,15 +162,15 @@ export async function fetchDashboardData(
 
   const txSelect = 'id, date, label, amount, category_id, source, is_validated';
 
-  const [txData, prevTxData, allYearData, catRes, annObjRes, qObjRes, offRes, bankRes, sparkData, actKpiRes, actTargetRes] = await Promise.all([
+  const [txData, prevTxData, allYearData, catRes, qObjRes, offRes, bankRes, sparkData, actKpiRes, actTargetRes] = await Promise.all([
     fetchPaginated(userId, txSelect, start, end, { column: 'date', ascending: false }),
     fetchPaginated(userId, txSelect, prevRange.start, prevRange.end),
     fetchPaginated(userId, txSelect, yearRange.start, yearRange.end),
-    supabase.from('categories').select('id, name, emoji, color, type').eq('user_id', userId),
-    supabase.from('annual_objectives').select('id, year, revenue_target')
-      .eq('user_id', userId).eq('year', year).maybeSingle(),
+    supabase.from('categories').select('id, name, emoji, color, type, monthly_cap').eq('user_id', userId),
+    // ALL years (not just `year`) : a recurring client signed last year may still
+    // be carried into this year's projection — see computeAllQuarters.
     supabase.from('quarterly_objectives').select('id, offer_id, year, quarter, target_new_clients')
-      .eq('user_id', userId).eq('year', year),
+      .eq('user_id', userId),
     supabase.from('offers').select('id, name, emoji, unit_price, billing_type, recurring_duration, is_active, sort_order')
       .eq('user_id', userId).eq('is_active', true),
     supabase.from('bank_accounts').select('id, name, current_balance').eq('user_id', userId),
@@ -192,7 +186,6 @@ export async function fetchDashboardData(
     prevTransactions: prevTxData as Transaction[],
     allYearTransactions: allYearData as Transaction[],
     categories: (catRes.data ?? []) as Category[],
-    annualObjective: annObjRes.data as AnnualObjective | null,
     quarterlyObjectives: (qObjRes.data ?? []) as QuarterlyObjective[],
     offers: (offRes.data ?? []) as unknown as Offer[],
     bankAccounts: (bankRes.data ?? []) as BankAccount[],
@@ -222,15 +215,28 @@ export async function fetchDeclarationData(
 
 /* ───── KPI computation ───── */
 
+/**
+ * "Dépenses" ne compte que les vraies dépenses professionnelles : les
+ * transactions classées dans une catégorie de type 'remuneration' (ce que tu
+ * te reverses) en sont exclues et comptabilisées à part, pour ne pas gonfler
+ * les charges affichées.
+ */
 export function computeKpis(transactions: Transaction[], prevTransactions: Transaction[], categories: Category[]) {
   const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
-  const isRevenue = (t: Transaction) => t.amount > 0 && !!t.category_id && revCatIds.has(t.category_id);
+  const remCatIds = new Set(categories.filter(c => c.type === 'remuneration').map(c => c.id));
+  // is_validated est toujours vrai dès qu'une catégorie est posée (voir CategorizeTransactions),
+  // mais on le vérifie explicitement pour ne jamais compter une catégorisation non confirmée.
+  const isRevenue = (t: Transaction) => t.amount > 0 && !!t.category_id && t.is_validated === true && revCatIds.has(t.category_id);
+  const isRemuneration = (t: Transaction) => t.amount < 0 && !!t.category_id && remCatIds.has(t.category_id);
+  const isRealExpense = (t: Transaction) => t.amount < 0 && !isRemuneration(t);
+
   const revenue = transactions.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
-  const expense = transactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
+  const expense = transactions.filter(isRealExpense).reduce((s, t) => s + Math.abs(t.amount), 0);
+  const remuneration = transactions.filter(isRemuneration).reduce((s, t) => s + Math.abs(t.amount), 0);
   const net = revenue - expense;
   const prevRevenue = prevTransactions.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
-  const prevExpense = prevTransactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-  return { revenue, expense, net, prevRevenue, prevExpense };
+  const prevExpense = prevTransactions.filter(isRealExpense).reduce((s, t) => s + Math.abs(t.amount), 0);
+  return { revenue, expense, net, prevRevenue, prevExpense, remuneration };
 }
 
 /**
@@ -266,7 +272,7 @@ export function computeQuarterlyBreakdown(
   categories: Category[],
 ): QuarterBreakdown[] {
   const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
-  const quarters = computeAllQuarters(offers, quarterlyObjectives);
+  const quarters = computeAllQuarters(offers, quarterlyObjectives, year);
   const result: QuarterBreakdown[] = [];
 
   for (let q = 1; q <= 4; q++) {
@@ -274,7 +280,7 @@ export function computeQuarterlyBreakdown(
     const months = [sm, sm + 1, sm + 2];
     const realRevenue = allYearTransactions
       .filter(t => {
-        if (t.amount <= 0 || !t.category_id || !revCatIds.has(t.category_id)) return false;
+        if (t.amount <= 0 || !t.category_id || t.is_validated !== true || !revCatIds.has(t.category_id)) return false;
         const m = parseInt(t.date.slice(5, 7), 10);
         return months.includes(m);
       })
@@ -304,7 +310,7 @@ export function buildMonthlyChartData(
   const currentMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
 
   // Compute objective per quarter
-  const quarters = computeAllQuarters(offers, quarterlyObjectives);
+  const quarters = computeAllQuarters(offers, quarterlyObjectives, year);
   const objByQuarter = new Map<number, number>();
   for (const q of quarters) {
     objByQuarter.set(q.quarter, q.totalProjected);
@@ -315,7 +321,7 @@ export function buildMonthlyChartData(
     const q = Math.ceil(m / 3);
     const qObj = objByQuarter.get(q) ?? 0;
     const monthTxs = allYearTransactions.filter(t => parseInt(t.date.slice(5, 7), 10) === m);
-    const revenue = monthTxs.filter(t => t.amount > 0 && !!t.category_id && revCatIds.has(t.category_id)).reduce((s, t) => s + t.amount, 0);
+    const revenue = monthTxs.filter(t => t.amount > 0 && !!t.category_id && t.is_validated === true && revCatIds.has(t.category_id)).reduce((s, t) => s + t.amount, 0);
     const expense = monthTxs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
     const hasFutureData = revenue === 0 && expense === 0 && (year > now.getFullYear() || (year === now.getFullYear() && m > currentMonth));
 
@@ -382,14 +388,20 @@ export function buildSparklineData(sparklineRaw: { date: string; amount: number 
 
 /* ───── Objective target for the card ───── */
 
+/**
+ * L'objectif annuel n'est plus un champ saisi à part (table annual_objectives,
+ * abandonnée) : c'est TOUJOURS la somme des 4 objectifs trimestriels, exactement
+ * comme affiché sur la page Objectifs. Les deux écrans doivent afficher le même
+ * nombre.
+ */
 export function getObjectiveTarget(
   period: PeriodType,
   periodValue: number,
-  annualObjective: AnnualObjective | null,
   quarterlyBreakdown: QuarterBreakdown[],
 ): number | null {
   if (period === 'year') {
-    return annualObjective?.revenue_target ?? null;
+    const total = quarterlyBreakdown.reduce((s, qb) => s + qb.objectiveRevenue, 0);
+    return total > 0 ? total : null;
   }
   if (period === 'quarter') {
     const q = quarterlyBreakdown.find(qb => qb.quarter === periodValue);

@@ -15,6 +15,7 @@ interface Category {
   type: string;
   is_default: boolean | null;
   sort_order: number | null;
+  monthly_cap: number | null;
 }
 
 interface CategoryStats {
@@ -37,7 +38,7 @@ export function CategoryList() {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [modalType, setModalType] = useState<'expense' | 'revenue'>('expense');
+  const [modalType, setModalType] = useState<'expense' | 'revenue' | 'remuneration'>('expense');
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
@@ -53,7 +54,7 @@ export function CategoryList() {
     const [catRes, txRes] = await Promise.all([
       supabase
         .from('categories')
-        .select('id, name, emoji, color, type, is_default, sort_order')
+        .select('id, name, emoji, color, type, is_default, sort_order, monthly_cap')
         .eq('user_id', user.id)
         .order('sort_order')
         .order('name'),
@@ -85,7 +86,7 @@ export function CategoryList() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handleCreate = (type: 'expense' | 'revenue') => {
+  const handleCreate = (type: 'expense' | 'revenue' | 'remuneration') => {
     setEditingCategory(null);
     setModalType(type);
     setModalOpen(true);
@@ -93,17 +94,17 @@ export function CategoryList() {
 
   const handleEdit = (cat: Category) => {
     setEditingCategory(cat);
-    setModalType(cat.type === 'revenue' ? 'revenue' : 'expense');
+    setModalType(cat.type === 'revenue' ? 'revenue' : cat.type === 'remuneration' ? 'remuneration' : 'expense');
     setModalOpen(true);
   };
 
-  const handleSave = async (data: { name: string; emoji: string; color: string; type: string }) => {
+  const handleSave = async (data: { name: string; emoji: string; color: string; type: string; monthly_cap: number | null }) => {
     if (!user) return;
 
     if (editingCategory) {
       const { error } = await supabase
         .from('categories')
-        .update({ name: data.name, emoji: data.emoji, color: data.color, type: data.type })
+        .update({ name: data.name, emoji: data.emoji, color: data.color, type: data.type, monthly_cap: data.monthly_cap })
         .eq('id', editingCategory.id);
       if (error) {
         toast.error(error.message.includes('unique') ? 'Ce nom de catégorie existe déjà.' : error.message);
@@ -121,6 +122,7 @@ export function CategoryList() {
         emoji: data.emoji,
         color: data.color,
         type: data.type,
+        monthly_cap: data.monthly_cap,
         sort_order: maxOrder + 1,
       });
       if (error) {
@@ -173,8 +175,8 @@ export function CategoryList() {
     fetchData();
   };
 
-  const renderSection = (title: string, type: 'expense' | 'revenue') => {
-    const filtered = categories.filter(c => c.type === type || c.type === 'both');
+  const renderSection = (title: string, type: 'expense' | 'revenue' | 'remuneration') => {
+    const filtered = categories.filter(c => c.type === type || (type !== 'remuneration' && c.type === 'both'));
 
     return (
       <div className="space-y-4">
@@ -182,6 +184,10 @@ export function CategoryList() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((cat) => {
             const s = stats.get(cat.id);
+            // month_total est négatif pour une catégorie de dépense/rémunération (sorties d'argent).
+            const spentThisMonth = Math.abs(Math.min(0, s?.month_total ?? 0));
+            const cap = cat.monthly_cap;
+            const overCap = cap != null && cap > 0 && spentThisMonth > cap;
             return (
               <div key={cat.id} className="bg-card rounded-[20px] shadow-soft p-4 flex items-center gap-3 group">
                 {/* Color swatch */}
@@ -201,6 +207,11 @@ export function CategoryList() {
                       {(s?.month_total ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} € ce mois
                     </span>
                   </div>
+                  {cap != null && cap > 0 && (
+                    <p className={`text-xs font-mono mt-0.5 ${overCap ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                      {overCap && '⚠️ '}{spentThisMonth.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} € / {cap.toLocaleString('fr-FR')} € plafond
+                    </p>
+                  )}
                 </div>
                 {/* Actions */}
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -235,6 +246,7 @@ export function CategoryList() {
     <div className="space-y-8">
       {renderSection('Mes catégories de dépenses', 'expense')}
       {renderSection('Mes catégories de revenus', 'revenue')}
+      {renderSection('Ma rémunération', 'remuneration')}
 
       <CategoryModal
         open={modalOpen}
