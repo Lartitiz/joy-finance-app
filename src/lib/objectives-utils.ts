@@ -46,49 +46,53 @@ export function currentQuarter(): number {
 }
 
 /**
- * For a given offer + all quarterly objectives for that offer in a year,
- * compute the projected revenue per quarter (T1-T4).
+ * For a given offer + ALL quarterly objectives for that offer (any year),
+ * compute the projected revenue per quarter (T1-T4) of `targetYear`.
+ *
+ * Recurring clients signed in a *previous* year (e.g. Q4 last year, 12 months
+ * duration) are carried over into `targetYear` if their paying window still
+ * overlaps it — the projection no longer resets to zero every January 1st.
+ * A `recurring_duration` of null means "indéfini" : the client is assumed to
+ * still be paying for as long as `targetYear` runs.
  *
  * Returns an array of 4 numbers [caT1, caT2, caT3, caT4].
  */
 export function computeOfferRevenueByQuarter(
   offer: Offer,
-  objectives: QuarterlyObjective[], // all quarterly objectives for this offer in the year
+  objectives: QuarterlyObjective[], // all quarterly objectives for this offer, ANY year
+  targetYear: number,
 ): [number, number, number, number] {
   const result: [number, number, number, number] = [0, 0, 0, 0];
 
-  // Build a map: quarter -> target_new_clients
-  const clientsByQ = new Map<number, number>();
-  for (const obj of objectives) {
-    clientsByQ.set(obj.quarter, obj.target_new_clients);
-  }
-
   if (offer.billing_type === 'one_time') {
-    // Simple: CA = new_clients × unit_price, all earned in the quarter of signing
-    for (let q = 1; q <= 4; q++) {
-      const clients = clientsByQ.get(q) ?? 0;
-      result[q - 1] = clients * offer.unit_price;
+    // Simple: CA = new_clients × unit_price, earned in the quarter of signing (targetYear only)
+    for (const obj of objectives) {
+      if (obj.year !== targetYear || obj.target_new_clients === 0) continue;
+      result[obj.quarter - 1] += obj.target_new_clients * offer.unit_price;
     }
     return result;
   }
 
-  // recurring_monthly: clients signed at quarter Q start paying from Q's first month
-  // for recurring_duration months (or indefinitely if null)
-  // We compute month by month (1-12) how many clients are active, then sum per quarter.
+  // recurring_monthly: each signup cohort (year, quarter, clients) pays from the
+  // quarter's first month for `recurring_duration` months (or indefinitely if null).
+  // We work in absolute month indices (year*12 + monthIndex0) so a cohort signed
+  // in a prior year can still land inside targetYear's window.
+  const targetStart = targetYear * 12;      // Jan of targetYear, 0-indexed
+  const targetEnd = targetYear * 12 + 11;   // Dec of targetYear
+  const monthlyActiveClients = new Array(12).fill(0); // index 0 = Jan of targetYear
 
-  // For each month (1-12), count active clients
-  const monthlyActiveClients = new Array(12).fill(0);
-
-  for (let q = 1; q <= 4; q++) {
-    const newClients = clientsByQ.get(q) ?? 0;
-    if (newClients === 0) continue;
-
-    const startMonth = quarterStartMonth(q); // 1-indexed month they start paying
+  for (const obj of objectives) {
+    if (obj.target_new_clients === 0) continue;
+    const cohortStart = obj.year * 12 + (quarterStartMonth(obj.quarter) - 1);
     const duration = offer.recurring_duration;
-    const endMonth = duration ? startMonth + duration - 1 : 12; // cap at 12 for this year
+    // Indefinite recurring: still active through the end of targetYear (no churn model).
+    const cohortEnd = duration ? cohortStart + duration - 1 : targetEnd;
+    if (cohortEnd < targetStart || cohortStart > targetEnd) continue; // no overlap with targetYear
 
-    for (let m = startMonth; m <= Math.min(endMonth, 12); m++) {
-      monthlyActiveClients[m - 1] += newClients;
+    const from = Math.max(cohortStart, targetStart);
+    const to = Math.min(cohortEnd, targetEnd);
+    for (let m = from; m <= to; m++) {
+      monthlyActiveClients[m - targetStart] += obj.target_new_clients;
     }
   }
 
@@ -116,11 +120,16 @@ export interface QuarterSummary {
 }
 
 /**
- * Compute the full quarterly breakdown for all offers.
+ * Compute the full quarterly breakdown for all offers, for `targetYear`.
+ *
+ * `objectives` should contain ALL years' quarterly objectives (not just
+ * targetYear) so that recurring clients signed in a previous year are
+ * correctly carried over — see computeOfferRevenueByQuarter.
  */
 export function computeAllQuarters(
   offers: Offer[],
   objectives: QuarterlyObjective[],
+  targetYear: number,
 ): QuarterSummary[] {
   const activeOffers = offers.filter((o) => o.is_active).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
@@ -128,12 +137,14 @@ export function computeAllQuarters(
   const revenueByOffer = new Map<string, [number, number, number, number]>();
   for (const offer of activeOffers) {
     const offerObjectives = objectives.filter((o) => o.offer_id === offer.id);
-    revenueByOffer.set(offer.id, computeOfferRevenueByQuarter(offer, offerObjectives));
+    revenueByOffer.set(offer.id, computeOfferRevenueByQuarter(offer, offerObjectives, targetYear));
   }
 
-  // Build objective lookup: offerId-quarter -> target
+  // Build objective lookup (targetYear only): offerId-quarter -> target new clients,
+  // used to display/edit the "new clients this quarter" input value.
   const objLookup = new Map<string, number>();
   for (const obj of objectives) {
+    if (obj.year !== targetYear) continue;
     objLookup.set(`${obj.offer_id}-${obj.quarter}`, obj.target_new_clients);
   }
 

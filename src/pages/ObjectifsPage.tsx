@@ -20,11 +20,6 @@ import {
 
 /* ─── Types ─── */
 
-interface AnnualObjective {
-  id?: string;
-  revenue_target: number;
-}
-
 interface MonthlySignedRevenue {
   id: string;
   year: number;
@@ -76,9 +71,8 @@ export default function ObjectifsPage() {
 
   // Data
   const [offers, setOffers] = useState<Offer[]>([]);
-  const [qObjectives, setQObjectives] = useState<QuarterlyObjective[]>([]);
-  const [annualObj, setAnnualObj] = useState<AnnualObjective | null>(null);
-  const [annualTargetInput, setAnnualTargetInput] = useState('');
+  const [qObjectives, setQObjectives] = useState<QuarterlyObjective[]>([]); // année sélectionnée uniquement (édition)
+  const [allQObjectives, setAllQObjectives] = useState<QuarterlyObjective[]>([]); // toutes années (report des récurrents)
   const [quarterSummaries, setQuarterSummaries] = useState<QuarterSummary[]>([]);
   const [yearlyActualRevenue, setYearlyActualRevenue] = useState(0);
   const [quarterlyActuals, setQuarterlyActuals] = useState<[number, number, number, number]>([0, 0, 0, 0]);
@@ -96,7 +90,6 @@ export default function ObjectifsPage() {
   const [activityTargets, setActivityTargets] = useState<QuarterlyActivityTarget[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [savingAnnual, setSavingAnnual] = useState(false);
   const [savingQ, setSavingQ] = useState<number | null>(null);
 
   /* ─── Load ─── */
@@ -109,10 +102,12 @@ export default function ObjectifsPage() {
 
     const qMonths = quarterMonths(selectedQ);
 
-    const [offersRes, qObjRes, annualObjRes, txRes, signedRes, actKpiRes, actTargetRes] = await Promise.all([
+    const [offersRes, qObjRes, allQObjRes, txRes, signedRes, actKpiRes, actTargetRes] = await Promise.all([
       supabase.from('offers').select('*').eq('user_id', user.id).eq('is_active', true).order('sort_order'),
       supabase.from('quarterly_objectives').select('*').eq('user_id', user.id).eq('year', year),
-      supabase.from('annual_objectives').select('id, revenue_target').eq('user_id', user.id).eq('year', year).maybeSingle(),
+      // Toutes années : un client récurrent signé l'an dernier peut encore compter
+      // dans l'objectif de cette année — voir computeAllQuarters.
+      supabase.from('quarterly_objectives').select('*').eq('user_id', user.id),
       supabase.from('transactions').select('date, amount').eq('user_id', user.id).gte('date', yearStart).lt('date', yearEnd),
       supabase.from('monthly_signed_revenue').select('id, year, month, total_signed')
         .eq('user_id', user.id).eq('year', year)
@@ -136,21 +131,18 @@ export default function ObjectifsPage() {
     }));
     setQObjectives(fetchedQObj);
 
+    const fetchedAllQObj: QuarterlyObjective[] = (allQObjRes.data ?? []).map((o: any) => ({
+      id: o.id, offer_id: o.offer_id, year: o.year, quarter: o.quarter, target_new_clients: o.target_new_clients,
+    }));
+    setAllQObjectives(fetchedAllQObj);
+
     const inputs = new Map<string, number>();
     for (const obj of fetchedQObj) {
       inputs.set(`${obj.offer_id}-${obj.quarter}`, obj.target_new_clients);
     }
     setQInputs(inputs);
 
-    if (annualObjRes.data) {
-      setAnnualObj({ id: annualObjRes.data.id, revenue_target: Number(annualObjRes.data.revenue_target) });
-      setAnnualTargetInput(Number(annualObjRes.data.revenue_target).toString());
-    } else {
-      setAnnualObj(null);
-      setAnnualTargetInput('');
-    }
-
-    setQuarterSummaries(computeAllQuarters(fetchedOffers, fetchedQObj));
+    setQuarterSummaries(computeAllQuarters(fetchedOffers, fetchedAllQObj, year));
 
     const txs = txRes.data ?? [];
     const totalRev = txs.filter(t => t.amount > 0).reduce((s, t) => s + Number(t.amount), 0);
@@ -203,26 +195,6 @@ export default function ObjectifsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  /* ─── Save annual objective ─── */
-  const handleSaveAnnual = async () => {
-    if (!user) return;
-    const target = parseFloat(annualTargetInput);
-    if (isNaN(target) || target < 0) { toast.error('Montant invalide'); return; }
-    setSavingAnnual(true);
-
-    if (annualObj?.id) {
-      const { error } = await supabase.from('annual_objectives').update({ revenue_target: target }).eq('id', annualObj.id);
-      if (error) toast.error(error.message);
-      else toast.success('Objectif annuel mis à jour');
-    } else {
-      const { error } = await supabase.from('annual_objectives').insert({ user_id: user.id, year, revenue_target: target });
-      if (error) toast.error(error.message);
-      else toast.success('Objectif annuel enregistré');
-    }
-    setSavingAnnual(false);
-    load();
-  };
-
   /* ─── Save quarter objectives ─── */
   const handleSaveQuarter = async (q: number) => {
     if (!user) return;
@@ -261,7 +233,9 @@ export default function ObjectifsPage() {
       const key = `${obj.offer_id}-${obj.quarter}`;
       if (!tempInputs.has(key)) updatedObjectives.push(obj);
     }
-    setQuarterSummaries(computeAllQuarters(offers, updatedObjectives));
+    // + les autres années (report des clients récurrents), non affectées par cette saisie.
+    const otherYears = allQObjectives.filter((obj) => obj.year !== year);
+    setQuarterSummaries(computeAllQuarters(offers, [...otherYears, ...updatedObjectives], year));
   };
 
   /* ─── Signed Revenue helpers ─── */

@@ -16,6 +16,7 @@ interface Category {
   emoji: string | null;
   color: string | null;
   type: string;
+  monthly_cap: number | null;
 }
 
 const EMOJI_PRESETS = [
@@ -27,9 +28,9 @@ const EMOJI_PRESETS = [
 interface CategoryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (data: { name: string; emoji: string; color: string; type: string }) => void;
+  onSave: (data: { name: string; emoji: string; color: string; type: string; monthly_cap: number | null }) => void;
   category: Category | null;
-  defaultType: 'expense' | 'revenue';
+  defaultType: 'expense' | 'revenue' | 'remuneration';
   colorPalette: string[];
 }
 
@@ -45,6 +46,7 @@ export function CategoryModal({
   const [emoji, setEmoji] = useState('');
   const [color, setColor] = useState('');
   const [type, setType] = useState<string>('expense');
+  const [monthlyCap, setMonthlyCap] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -53,11 +55,13 @@ export function CategoryModal({
         setEmoji(category.emoji || '');
         setColor(category.color || colorPalette[0]);
         setType(category.type);
+        setMonthlyCap(category.monthly_cap != null ? String(category.monthly_cap) : '');
       } else {
         setName('');
         setEmoji('');
         setColor(colorPalette[0]);
         setType(defaultType);
+        setMonthlyCap('');
       }
     }
   }, [open, category, defaultType, colorPalette]);
@@ -65,7 +69,8 @@ export function CategoryModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onSave({ name: name.trim(), emoji, color, type });
+    const cap = monthlyCap.trim() ? parseFloat(monthlyCap) : null;
+    onSave({ name: name.trim(), emoji, color, type, monthly_cap: cap !== null && !isNaN(cap) ? cap : null });
   };
 
   return (
@@ -135,6 +140,7 @@ export function CategoryModal({
                 { value: 'expense', label: 'Dépense' },
                 { value: 'revenue', label: 'Revenu' },
                 { value: 'both', label: 'Les deux' },
+                { value: 'remuneration', label: 'Rémunération' },
               ].map((opt) => (
                 <button
                   key={opt.value}
@@ -151,6 +157,23 @@ export function CategoryModal({
               ))}
             </div>
           </div>
+
+          {/* Plafond mensuel (optionnel) */}
+          {(type === 'expense' || type === 'remuneration') && (
+            <div className="space-y-2">
+              <Label htmlFor="cat-cap">Plafond mensuel (€, optionnel)</Label>
+              <Input
+                id="cat-cap"
+                type="number"
+                min="0"
+                step="0.01"
+                value={monthlyCap}
+                onChange={(e) => setMonthlyCap(e.target.value)}
+                placeholder="Ex: 400"
+              />
+              <p className="text-xs text-muted-foreground">Une alerte s'affiche quand tes dépenses du mois dans cette catégorie dépassent ce montant.</p>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
