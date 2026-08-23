@@ -166,7 +166,11 @@ export async function fetchDashboardData(
     fetchPaginated(userId, txSelect, start, end, { column: 'date', ascending: false }),
     fetchPaginated(userId, txSelect, prevRange.start, prevRange.end),
     fetchPaginated(userId, txSelect, yearRange.start, yearRange.end),
-    supabase.from('categories').select('id, name, emoji, color, type, monthly_cap').eq('user_id', userId),
+    // monthly_cap omis tant que la migration Supabase n'est pas synchronisée via
+    // Lovable (colonne inexistante en base = toute la requête catégories échoue,
+    // ce qui a fait tomber le CA cumulé à zéro le 23/08). À rebrancher une fois
+    // la migration confirmée live (cf. src/components/categories/CategoryList.tsx).
+    supabase.from('categories').select('id, name, emoji, color, type').eq('user_id', userId),
     // ALL years (not just `year`) : a recurring client signed last year may still
     // be carried into this year's projection — see computeAllQuarters.
     supabase.from('quarterly_objectives').select('id, offer_id, year, quarter, target_new_clients')
