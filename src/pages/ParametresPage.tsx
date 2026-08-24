@@ -165,7 +165,7 @@ export default function ParametresPage() {
 
       // Recreate default offers
       const defaultOffers = [
-        { name: 'Ta Binôme', emoji: '👯', unit_price: 350, billing_type: 'recurring_monthly', recurring_duration: 6, sort_order: 1 },
+        { name: 'Ta Binôme', emoji: '👯', unit_price: 250, billing_type: 'recurring_monthly', recurring_duration: 6, sort_order: 1 },
         { name: 'Agency', emoji: '🤝', unit_price: 2000, billing_type: 'one_time', recurring_duration: null, sort_order: 2 },
         { name: 'Cours école', emoji: '🎓', unit_price: 2000, billing_type: 'one_time', recurring_duration: null, sort_order: 3 },
         { name: 'Backup', emoji: '🔄', unit_price: 600, billing_type: 'one_time', recurring_duration: null, sort_order: 4 },
