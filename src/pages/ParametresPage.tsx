@@ -169,7 +169,7 @@ export default function ParametresPage() {
         { name: 'Agency', emoji: '🤝', unit_price: 2000, billing_type: 'one_time', recurring_duration: null, sort_order: 2 },
         { name: 'Cours école', emoji: '🎓', unit_price: 2000, billing_type: 'one_time', recurring_duration: null, sort_order: 3 },
         { name: 'Backup', emoji: '🔄', unit_price: 600, billing_type: 'one_time', recurring_duration: null, sort_order: 4 },
-        { name: 'L\'Assistant', emoji: '💻', unit_price: 15, billing_type: 'recurring_monthly', recurring_duration: null, sort_order: 5 },
+        { name: 'L\'Assistant', emoji: '💻', unit_price: 25, billing_type: 'recurring_monthly', recurring_duration: null, sort_order: 5 },
       ];
       await supabase.from('offers').insert(defaultOffers.map(o => ({ ...o, user_id: user.id })));
 
