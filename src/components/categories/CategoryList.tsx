@@ -66,7 +66,7 @@ export function CategoryList() {
         .not('category_id', 'is', null),
     ]);
 
-    if (catRes.data) setCategories(catRes.data);
+    if (catRes.data) setCategories(catRes.data.map((c) => ({ ...c, monthly_cap: null })));
 
     if (txRes.data) {
       const statsMap = new Map<string, CategoryStats>();
