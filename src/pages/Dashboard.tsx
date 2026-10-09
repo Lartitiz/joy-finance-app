@@ -109,7 +109,7 @@ export default function Dashboard() {
 
       {/* Alerte : rentrées d'argent non classées, donc absentes du CA */}
       {uncategorizedIncome.count > 0 && (
-        <Link to="/categories"
+        <Link to="/categories?filter=income"
           className="flex items-start gap-3 bg-yellow-50 border-2 border-secondary rounded-[20px] p-4 hover:shadow-md transition-shadow">
           <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
           <div className="text-sm">

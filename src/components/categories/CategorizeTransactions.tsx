@@ -45,6 +45,9 @@ interface LearnedRule {
 export function CategorizeTransactions() {
   const { user } = useAuth();
   const [uncategorized, setUncategorized] = useState<Transaction[]>([]);
+  const [incomeOnly, setIncomeOnly] = useState(
+    () => new URLSearchParams(window.location.search).get('filter') === 'income'
+  );
   const [categorized, setCategorized] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [rules, setRules] = useState<CategorizationRule[]>([]);
@@ -568,6 +571,57 @@ export function CategorizeTransactions() {
           )}
         </div>
       )}
+
+      {/* Liste des transactions non classées (classement manuel) */}
+      {suggestions.length === 0 && !aiLoading && uncategorized.length > 0 && (() => {
+        const list = incomeOnly ? uncategorized.filter((t) => t.amount > 0) : uncategorized;
+        return (
+          <div className="bg-card rounded-[20px] shadow-soft overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-border">
+              <span className="text-sm font-medium">À classer</span>
+              <span className="flex-1" />
+              <Button size="sm" variant={incomeOnly ? 'ghost' : 'default'} onClick={() => setIncomeOnly(false)}>
+                Toutes ({uncategorized.length})
+              </Button>
+              <Button size="sm" variant={incomeOnly ? 'default' : 'ghost'} onClick={() => setIncomeOnly(true)}>
+                Rentrées d'argent ({uncategorized.filter((t) => t.amount > 0).length})
+              </Button>
+            </div>
+            <div className="max-h-[500px] overflow-auto">
+              <table className="w-full text-sm">
+                <tbody>
+                  {list.slice(0, 200).map((t) => (
+                    <tr key={t.id} className="border-t border-border first:border-t-0">
+                      <td className="px-5 py-2.5 font-mono text-xs whitespace-nowrap">{new Date(t.date).toLocaleDateString('fr-FR')}</td>
+                      <td className="px-5 py-2.5 max-w-[320px] truncate" title={t.label}>{t.label}</td>
+                      <td className={`px-5 py-2.5 text-right font-mono text-xs whitespace-nowrap ${t.amount >= 0 ? 'text-green-600' : 'text-destructive'}`}>
+                        {t.amount >= 0 ? '+' : ''}{t.amount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                      </td>
+                      <td className="px-5 py-2.5">
+                        <select
+                          defaultValue=""
+                          onChange={(e) => e.target.value && recategorize(t.id, e.target.value, t.label)}
+                          className="text-xs bg-background border border-border rounded-lg px-2 py-1 w-full max-w-[200px]"
+                        >
+                          <option value="">Choisir…</option>
+                          {categories
+                            .filter((c) => (t.amount > 0 ? c.type !== 'expense' : c.type !== 'revenue'))
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+                            ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                  {list.length === 0 && (
+                    <tr><td className="px-5 py-6 text-center text-muted-foreground">Rien à classer ici 🎉</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {uncategorized.length === 0 && suggestions.length === 0 && (
         <div className="bg-card rounded-[20px] shadow-soft p-12 text-center">
