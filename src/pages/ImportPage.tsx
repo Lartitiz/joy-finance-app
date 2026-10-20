@@ -7,6 +7,7 @@ import {
   autoMapColumns,
   applyMapping,
   splitDuplicates,
+  dateSpan,
   ColumnMapping,
   RawRow,
   ParsedTransaction,
@@ -27,7 +28,7 @@ export default function ImportPage() {
   const [allRows, setAllRows] = useState<RawRow[]>([]);
   const [mapping, setMapping] = useState<Record<string, ColumnMapping>>({});
   const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
-  const [duplicateCount, setDuplicateCount] = useState(0);
+  const [split, setSplit] = useState<{ fresh: ParsedTransaction[]; dupes: ParsedTransaction[]; probables: ParsedTransaction[] } | null>(null);
   const [importing, setImporting] = useState(false);
   const [importedCount, setImportedCount] = useState(0);
 
@@ -65,44 +66,55 @@ export default function ImportPage() {
     checkDuplicates(txns);
   }, [allRows, mapping]);
 
+  /**
+   * Relit TOUTES les transactions déjà en base sur la période du fichier.
+   * Supabase plafonne une réponse à 1 000 lignes : sans pagination,
+   * l'anti-doublon ne voyait qu'une partie de la base.
+   */
+  const fetchExisting = async (txns: ParsedTransaction[]) => {
+    const span = dateSpan(txns);
+    if (!user || !span) return [];
+    const PAGE = 1000;
+    let all: { date: string; label: string; amount: number }[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('date, label, amount')
+        .eq('user_id', user.id)
+        .gte('date', span.start)
+        .lte('date', span.end)
+        .order('id')
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      all = all.concat(data ?? []);
+      if ((data?.length ?? 0) < PAGE) break;
+    }
+    return all;
+  };
+
   const checkDuplicates = async (txns: ParsedTransaction[]) => {
     if (!user) return;
     try {
-      const { data: existing } = await supabase
-        .from('transactions')
-        .select('date, label, amount')
-        .eq('user_id', user.id);
-
-      if (existing && existing.length > 0) {
-        const { dupes } = splitDuplicates(txns, existing);
-        setDuplicateCount(dupes.length);
-      } else {
-        setDuplicateCount(0);
-      }
-    } catch {
-      setDuplicateCount(0);
+      const existing = await fetchExisting(txns);
+      setSplit(splitDuplicates(txns, existing));
+      setStep('preview');
+    } catch (err: unknown) {
+      // Sans la liste existante, on ne peut pas garantir l'absence de doublons :
+      // on bloque plutôt que d'importer à l'aveugle.
+      toast.error(`Impossible de vérifier les doublons : ${(err as { message?: string })?.message ?? 'erreur inconnue'}`);
     }
-    setStep('preview');
   };
 
   // Step 3: import
-  const handleImport = async (skipDuplicates: boolean) => {
+  const handleImport = async (includeProbables: boolean) => {
     if (!user) return;
     setImporting(true);
 
     try {
-      let txnsToImport = transactions;
-
-      if (skipDuplicates && duplicateCount > 0) {
-        const { data: existing } = await supabase
-          .from('transactions')
-          .select('date, label, amount')
-          .eq('user_id', user.id);
-
-        if (existing) {
-          txnsToImport = splitDuplicates(transactions, existing).fresh;
-        }
-      }
+      // Relecture juste avant l'écriture : la base a pu changer depuis l'aperçu
+      // (autre onglet, double clic).
+      const latest = splitDuplicates(transactions, await fetchExisting(transactions));
+      const txnsToImport = includeProbables ? [...latest.fresh, ...latest.probables] : latest.fresh;
 
       if (txnsToImport.length === 0) {
         toast.info('Toutes les transactions sont des doublons. Rien à importer.');
@@ -164,7 +176,7 @@ export default function ImportPage() {
     setAllRows([]);
     setMapping({});
     setTransactions([]);
-    setDuplicateCount(0);
+    setSplit(null);
     setImportedCount(0);
   };
 
@@ -184,10 +196,12 @@ export default function ImportPage() {
         />
       )}
 
-      {step === 'preview' && (
+      {step === 'preview' && split && (
         <TransactionPreview
           transactions={transactions}
-          duplicateCount={duplicateCount}
+          freshCount={split.fresh.length}
+          dupes={split.dupes}
+          probables={split.probables}
           onImport={handleImport}
           importing={importing}
         />

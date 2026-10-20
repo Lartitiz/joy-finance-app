@@ -52,6 +52,10 @@ export function parseFile(file: File): Promise<{ headers: string[]; rows: RawRow
 export type ColumnMapping = 'date' | 'label' | 'amount_single' | 'amount_credit' | 'amount_debit' | 'ignore';
 
 const DATE_KEYWORDS = ['date', 'jour', 'day', 'valeur', 'opération'];
+// La date d'opération passe avant la date de valeur : deux exports du même
+// compte doivent donner la même date à un mouvement, sinon il échappe à
+// l'anti-doublon et peut changer de trimestre (31/03 contre 01/04).
+const VALUE_DATE_KEYWORDS = ['valeur', 'value'];
 const LABEL_KEYWORDS = ['libellé', 'libelle', 'label', 'description', 'intitulé', 'intitule', 'designation', 'communication', 'référence', 'reference'];
 const CREDIT_KEYWORDS = ['crédit', 'credit', 'encaissement', 'recette'];
 const DEBIT_KEYWORDS = ['débit', 'debit', 'décaissement'];
@@ -61,16 +65,33 @@ export function autoMapColumns(headers: string[]): Record<string, ColumnMapping>
   const mapping: Record<string, ColumnMapping> = {};
   const lower = headers.map(h => h.toLowerCase().trim());
 
-  let hasDate = false, hasLabel = false, hasCredit = false, hasDebit = false, hasAmount = false;
+  const isDateHeader = (h: string) => DATE_KEYWORDS.some(k => h.includes(k));
+  const isValueDate = (h: string) => VALUE_DATE_KEYWORDS.some(k => h.includes(k));
+  const dateIndexes = lower.map((h, i) => (isDateHeader(h) ? i : -1)).filter(i => i >= 0);
+  const dateIndex = dateIndexes.find(i => !isValueDate(lower[i])) ?? dateIndexes[0] ?? -1;
+
+  // Libellé : la colonne qui correspond au mot-clé le plus prioritaire
+  // (« Libellé » avant « Référence »), quel que soit l'ordre des colonnes.
+  const labelIndex = (() => {
+    for (const k of LABEL_KEYWORDS) {
+      const i = lower.findIndex((h, j) => !dateIndexes.includes(j) && h.includes(k));
+      if (i >= 0) return i;
+    }
+    return -1;
+  })();
+
+  let hasCredit = false, hasDebit = false, hasAmount = false;
 
   lower.forEach((h, i) => {
     const header = headers[i];
-    if (!hasDate && DATE_KEYWORDS.some(k => h.includes(k))) {
+    if (i === dateIndex) {
       mapping[header] = 'date';
-      hasDate = true;
-    } else if (!hasLabel && LABEL_KEYWORDS.some(k => h.includes(k))) {
+    } else if (dateIndexes.includes(i)) {
+      // autre colonne de date (ex. date de valeur) : laissée de côté
+    } else if (i === labelIndex) {
       mapping[header] = 'label';
-      hasLabel = true;
+    } else if (LABEL_KEYWORDS.some(k => h.includes(k))) {
+      // autre colonne de libellé (ex. référence) : laissée de côté
     } else if (!hasCredit && CREDIT_KEYWORDS.some(k => h.includes(k))) {
       mapping[header] = 'amount_credit';
       hasCredit = true;
@@ -118,10 +139,25 @@ export function parseDate(val: string): string | null {
     if (!isNaN(date.getTime())) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
-  // Fallback: try native parsing
+  // Date suivie d'une heure (« 31/03/2026 23:30 », « 2026-03-31T23:30:00Z ») :
+  // on garde le jour écrit, sans passer par l'UTC qui le décalerait.
+  const withTime = trimmed.match(/^(\S+)[ T]\d{1,2}:\d{2}/);
+  if (withTime) return parseDate(withTime[1]);
+
+  // Date Excel stockée en nombre de jours depuis le 30/12/1899 (ex. 46113).
+  if (/^\d{5}(\.\d+)?$/.test(trimmed)) {
+    const serial = Math.floor(Number(trimmed));
+    const d = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+    return d.toISOString().split('T')[0];
+  }
+
+  // Fallback: try native parsing (jour local, pas UTC)
   const native = new Date(trimmed);
-  if (!isNaN(native.getTime())) {
-    return native.toISOString().split('T')[0];
+  if (!isNaN(native.getTime()) && native.getFullYear() >= 1900 && native.getFullYear() < 2200) {
+    const y = native.getFullYear();
+    const m = String(native.getMonth() + 1).padStart(2, '0');
+    const d = String(native.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   return null;
@@ -142,35 +178,63 @@ export interface ParsedTransaction {
 }
 
 /**
- * Clé de dédoublonnage robuste : on normalise le libellé (espaces multiples,
- * casse) et le montant (2 décimales fixes) pour que le même mouvement soit
- * reconnu même si la banque a légèrement changé sa mise en forme, ou si la base
- * renvoie le montant en chaîne plutôt qu'en nombre.
+ * Libellé ramené à sa forme comparable : sans accents, en minuscules, sans
+ * ponctuation, et réduit à la dernière partie quand il a été enrichi avec
+ * « | ». Ainsi « Vir Sepa Stripe | VIR SEPA STRIPE » et « VIR SEPA STRIPE »
+ * désignent le même mouvement (cause des doublons du T1 2026).
  */
-export function dedupKey(t: { date: string; label: string; amount: number | string }): string {
-  const label = String(t.label ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-  const amount = Number(t.amount);
-  const amountKey = Number.isFinite(amount) ? amount.toFixed(2) : String(t.amount);
-  return `${t.date}|${label}|${amountKey}`;
+export function normalizeLabel(label: string): string {
+  const parts = String(label ?? '').split(/\s\|\s/);
+  const last = parts[parts.length - 1];
+  return last
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function amountKey(amount: number | string): string {
+  const n = Number(amount);
+  return Number.isFinite(n) ? String(Math.round(n * 100)) : String(amount);
 }
 
 /**
- * Sépare les transactions entrantes en "nouvelles" et "doublons" en tenant
- * compte du NOMBRE d'occurrences déjà présentes. Si la base contient déjà 1
- * exemplaire d'un mouvement et que le fichier en apporte 2, un seul est
- * considéré comme doublon — le second (légitime) est bien importé.
+ * Clé de dédoublonnage : date, montant en centimes (le signe donne le sens)
+ * et libellé normalisé. Reconnaît le même mouvement même si la banque ou un
+ * autre export a changé la mise en forme du libellé.
+ */
+export function dedupKey(t: { date: string; label: string; amount: number | string }): string {
+  return `${t.date}|${amountKey(t.amount)}|${normalizeLabel(t.label)}`;
+}
+
+/** Clé large : même date et même montant, quel que soit le libellé. */
+export function looseKey(t: { date: string; amount: number | string }): string {
+  return `${t.date}|${amountKey(t.amount)}`;
+}
+
+type ExistingTx = { date: string; label: string; amount: number | string };
+
+/**
+ * Sépare les transactions entrantes en trois groupes, en tenant compte du
+ * NOMBRE d'occurrences déjà présentes (une 2e transaction légitimement
+ * identique n'est pas perdue) :
+ * - dupes : même date, même montant, même libellé normalisé ;
+ * - probables : même date et même montant qu'une ligne déjà en base, mais
+ *   libellé différent (souvent un autre export du même mouvement) ;
+ * - fresh : le reste.
  */
 export function splitDuplicates(
   incoming: ParsedTransaction[],
-  existing: { date: string; label: string; amount: number | string }[],
-): { fresh: ParsedTransaction[]; dupes: ParsedTransaction[] } {
+  existing: ExistingTx[],
+): { fresh: ParsedTransaction[]; dupes: ParsedTransaction[]; probables: ParsedTransaction[] } {
   const remaining = new Map<string, number>();
   for (const e of existing) {
     const k = dedupKey(e);
     remaining.set(k, (remaining.get(k) ?? 0) + 1);
   }
-  const fresh: ParsedTransaction[] = [];
   const dupes: ParsedTransaction[] = [];
+  const rest: ParsedTransaction[] = [];
   for (const t of incoming) {
     const k = dedupKey(t);
     const left = remaining.get(k) ?? 0;
@@ -178,10 +242,45 @@ export function splitDuplicates(
       remaining.set(k, left - 1);
       dupes.push(t);
     } else {
+      rest.push(t);
+    }
+  }
+
+  // Lignes en base restées sans correspondance exacte, comptées par date + montant.
+  const looseLeft = new Map<string, number>();
+  for (const e of existing) {
+    const k = dedupKey(e);
+    const left = remaining.get(k) ?? 0;
+    if (left > 0) {
+      remaining.set(k, left - 1);
+      const lk = looseKey(e);
+      looseLeft.set(lk, (looseLeft.get(lk) ?? 0) + 1);
+    }
+  }
+  const fresh: ParsedTransaction[] = [];
+  const probables: ParsedTransaction[] = [];
+  for (const t of rest) {
+    const lk = looseKey(t);
+    const left = looseLeft.get(lk) ?? 0;
+    if (left > 0) {
+      looseLeft.set(lk, left - 1);
+      probables.push(t);
+    } else {
       fresh.push(t);
     }
   }
-  return { fresh, dupes };
+  return { fresh, dupes, probables };
+}
+
+/** Plage de dates couverte par un fichier, pour ne relire que cette période. */
+export function dateSpan(txns: ParsedTransaction[]): { start: string; end: string } | null {
+  if (txns.length === 0) return null;
+  let start = txns[0].date, end = txns[0].date;
+  for (const t of txns) {
+    if (t.date < start) start = t.date;
+    if (t.date > end) end = t.date;
+  }
+  return { start, end };
 }
 
 export function applyMapping(
