@@ -16,6 +16,9 @@ import {
   type TopCategory, type QuarterBreakdown, type DashboardData,
   type ActivityKpi, type ActivityTarget,
 } from '@/lib/dashboard-utils';
+import { loadSettings, effectiveSettings } from '@/lib/declaration-utils';
+import { computeProvisions, urssafDeadline, upcomingDeadlineQuarter, todayIso } from '@/lib/provision-utils';
+import { ProvisionsCard } from '@/components/provisions/ProvisionsCard';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -96,6 +99,15 @@ export default function Dashboard() {
 
   const periodLabel = period === 'year' ? `${year}` : period === 'quarter' ? `T${quarterVal} ${year}` : `${MONTH_NAMES[monthVal - 1]} ${year}`;
 
+  // À mettre de côté : mêmes taux et même règle que la page Déclaration.
+  const declSettings = effectiveSettings(loadSettings(user?.id ?? ''), year);
+  const provisions = computeProvisions(data.transactions, data.categories, declSettings);
+  const today = todayIso();
+  const deadlineQuarter = period === 'quarter' ? quarterVal
+    : period === 'month' ? Math.ceil(monthVal / 3)
+    : upcomingDeadlineQuarter(year, today);
+  const deadline = urssafDeadline(data.allYearTransactions, data.categories, declSettings, year, deadlineQuarter, today);
+
   // Rentrées non classées sur la période affichée → pas comptées dans le CA
   const uncategorizedIncome = computeUncategorizedIncome(data.transactions);
 
@@ -159,6 +171,8 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      <ProvisionsCard periodLabel={periodLabel} provisions={provisions} settings={declSettings} deadline={deadline} />
 
       {/* Activity KPI cards */}
       {activityAgg.hasData && (
