@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Wallet, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react';
-import { formatEur } from '@/lib/dashboard-utils';
+import { Plus, Pencil, Wallet, TrendingUp, TrendingDown, ArrowRight, PiggyBank, Info } from 'lucide-react';
+import { formatEur, fetchPaginated } from '@/lib/dashboard-utils';
+import { fetchTreasurySummary, accountStartDate, type TreasuryAccount, type TreasurySummary } from '@/lib/treasury-utils';
+import { todayIso } from '@/lib/provision-utils';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
@@ -15,13 +17,9 @@ import { Link } from 'react-router-dom';
 
 const MONTH_NAMES_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 
-interface BankAccount {
-  id: string;
-  name: string;
-  current_balance: number | null;
-  last_updated: string | null;
-  created_at: string;
-}
+type BankAccount = TreasuryAccount;
+
+const dateFr = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR');
 
 interface ChartPoint {
   label: string;
@@ -31,6 +29,7 @@ interface ChartPoint {
 export default function TresoreriePage() {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
+  const [summary, setSummary] = useState<TreasurySummary | null>(null);
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [pendingInvoices, setPendingInvoices] = useState(0);
   const [avgExpenses, setAvgExpenses] = useState(0);
@@ -41,6 +40,7 @@ export default function TresoreriePage() {
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
   const [accountName, setAccountName] = useState('');
   const [accountBalance, setAccountBalance] = useState('');
+  const [accountDate, setAccountDate] = useState('');
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -50,32 +50,22 @@ export default function TresoreriePage() {
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    // Fetch accounts
-    const { data: accs } = await supabase
-      .from('bank_accounts')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at');
-
-    setAccounts(accs ?? []);
-
-    const totalBalance = (accs ?? []).reduce((s, a) => s + (a.current_balance ?? 0), 0);
+    // Comptes, solde reconstitué et provisions en cours
+    const sum = await fetchTreasurySummary(user.id);
+    setSummary(sum);
+    setAccounts(sum.accounts);
+    const totalBalance = sum.balance.total;
 
     // Fetch 6 months of transactions for chart
     const sixMonthsAgo = new Date(currentYear, currentMonth - 5, 1);
     const sixStart = sixMonthsAgo.toISOString().slice(0, 10);
     const nowEnd = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-    const { data: txData } = await supabase
-      .from('transactions')
-      .select('date, amount')
-      .eq('user_id', user.id)
-      .gte('date', sixStart)
-      .lte('date', nowEnd);
+    const txData = await fetchPaginated(user.id, 'date, amount', sixStart, '9999-12-31') as { date: string; amount: number }[];
 
     // Build monthly net flows
     const monthlyNet = new Map<string, number>();
-    for (const tx of txData ?? []) {
+    for (const tx of txData) {
       const key = tx.date.slice(0, 7);
       monthlyNet.set(key, (monthlyNet.get(key) ?? 0) + tx.amount);
     }
@@ -136,7 +126,7 @@ export default function TresoreriePage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const totalBalance = accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
+  const totalBalance = summary?.balance.total ?? 0;
   const projection = totalBalance + pendingInvoices - avgExpenses;
 
   const handleOpenModal = (account?: BankAccount) => {
@@ -144,10 +134,12 @@ export default function TresoreriePage() {
       setEditingAccount(account);
       setAccountName(account.name);
       setAccountBalance((account.current_balance ?? 0).toString());
+      setAccountDate(accountStartDate(account));
     } else {
       setEditingAccount(null);
       setAccountName('');
       setAccountBalance('');
+      setAccountDate(todayIso());
     }
     setModalOpen(true);
   };
@@ -158,7 +150,7 @@ export default function TresoreriePage() {
     const payload = {
       name: accountName.trim(),
       current_balance: accountBalance ? parseFloat(accountBalance) : 0,
-      last_updated: new Date().toISOString().slice(0, 10),
+      last_updated: accountDate || todayIso(),
     };
 
     if (editingAccount) {
@@ -218,25 +210,65 @@ export default function TresoreriePage() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Total card */}
-            <div className="bg-card rounded-[20px] shadow-soft p-5 border-2 border-primary/20 card-hover">
-              <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-                <Wallet className="h-4 w-4" />
-                Solde total
+          <>
+          {summary && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Solde reconstitué */}
+              <div className="bg-card rounded-[20px] shadow-soft p-5 card-hover">
+                <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
+                  <Wallet className="h-4 w-4" />
+                  Solde reconstitué
+                </div>
+                <p className={`text-3xl font-mono font-medium animate-count ${summary.balance.total >= 0 ? '' : 'text-destructive'}`}>
+                  {formatEur(summary.balance.total)}
+                </p>
+                <div className="space-y-1 text-xs mt-3">
+                  <Row label={`Solde de départ au ${dateFr(summary.balance.fromDate!)}`} value={summary.balance.startingTotal} />
+                  <Row label="Mouvements importés depuis" value={summary.balance.movements} />
+                </div>
               </div>
-              <p className={`text-3xl font-mono font-medium animate-count ${totalBalance >= 0 ? 'text-green-600' : 'text-destructive'}`}>
-                {formatEur(totalBalance)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">{accounts.length} compte{accounts.length > 1 ? 's' : ''}</p>
-            </div>
 
-            {/* Individual accounts */}
+              {/* Provisions en cours */}
+              <div className="bg-card rounded-[20px] shadow-soft p-5 card-hover">
+                <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
+                  <PiggyBank className="h-4 w-4" />
+                  Provisions en cours
+                </div>
+                <p className="text-3xl font-mono font-medium text-accent">{formatEur(summary.provisions.total)}</p>
+                <div className="space-y-1 text-xs mt-3">
+                  {summary.provisions.previous && (
+                    <Row label={`URSSAF T${summary.provisions.previous.quarter}, à payer avant le ${dateFr(summary.provisions.previous.dueDate)}`}
+                      value={summary.provisions.previous.amount} />
+                  )}
+                  <Row label={`URSSAF T${summary.provisions.current.quarter} en cours (échéance ${dateFr(summary.provisions.current.dueDate)})`}
+                    value={summary.provisions.current.amount} />
+                  {summary.provisions.tvaSince && (
+                    <Row label={`TVA collectée depuis le ${dateFr(summary.provisions.tvaSince)}`} value={summary.provisions.tva} />
+                  )}
+                </div>
+              </div>
+
+              {/* Disponible réel */}
+              <div className={`rounded-[20px] shadow-soft p-5 ${summary.disponible >= 0 ? 'bg-green-50 border border-green-200' : 'bg-destructive/5 border border-destructive/20'}`}>
+                <p className="text-sm text-muted-foreground mb-2">Disponible réel</p>
+                <p className={`text-3xl font-mono font-medium ${summary.disponible >= 0 ? 'text-green-600' : 'text-destructive'}`}>
+                  {formatEur(summary.disponible)}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-3 font-mono">
+                  {formatEur(summary.balance.total)} - {formatEur(summary.provisions.total)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">Ce que tu peux dépenser sans toucher à l'argent de l'URSSAF ni de la TVA.</p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {accounts.map(acc => (
               <div key={acc.id} className="bg-card rounded-[20px] shadow-soft p-5 group relative card-hover">
                 <button
                   onClick={() => handleOpenModal(acc)}
                   className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-muted"
+                  aria-label="Modifier le compte"
                 >
                   <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
@@ -244,14 +276,20 @@ export default function TresoreriePage() {
                 <p className={`text-2xl font-mono font-medium ${(acc.current_balance ?? 0) >= 0 ? '' : 'text-destructive'}`}>
                   {formatEur(acc.current_balance ?? 0)}
                 </p>
-                {acc.last_updated && (
-                  <p className="text-[10px] text-muted-foreground mt-1.5">
-                    Mis à jour le {new Date(acc.last_updated).toLocaleDateString('fr-FR')}
-                  </p>
-                )}
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Solde de départ au {dateFr(accountStartDate(acc))}
+                </p>
               </div>
             ))}
           </div>
+
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            {accounts.length > 1
+              ? "Tes relevés ne disent pas de quel compte vient chaque mouvement : le solde reconstitué part de la date de départ la plus récente. Mets la même date sur tous tes comptes pour un calcul exact."
+              : "Solde de départ en fin de journée, puis tous les mouvements importés après cette date. Pense à importer tes derniers relevés."}
+          </p>
+          </>
         )}
       </div>
 
@@ -353,7 +391,7 @@ export default function TresoreriePage() {
               <Input value={accountName} onChange={(e) => setAccountName(e.target.value)} placeholder="Ex : Compte courant pro" />
             </div>
             <div className="space-y-1.5">
-              <Label>Solde actuel (€)</Label>
+              <Label>Solde de départ (€)</Label>
               <Input
                 type="number"
                 value={accountBalance}
@@ -362,6 +400,11 @@ export default function TresoreriePage() {
                 placeholder="0"
                 step={0.01}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>À la date du</Label>
+              <Input type="date" value={accountDate} onChange={(e) => setAccountDate(e.target.value)} />
+              <p className="text-xs text-muted-foreground">Le solde de ton relevé à cette date, en fin de journée. Les mouvements importés ensuite s'y ajoutent.</p>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -379,6 +422,15 @@ export default function TresoreriePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono text-accent whitespace-nowrap">{formatEur(value)}</span>
     </div>
   );
 }
