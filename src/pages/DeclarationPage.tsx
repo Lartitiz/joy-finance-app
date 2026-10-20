@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { fetchDeclarationData, formatEur, type Transaction, type Category } from '@/lib/dashboard-utils';
 import {
-  REGIMES, defaultSettings, loadSettings, saveSettings, effectiveSettings,
+  REGIMES, defaultSettings, loadSettings, saveSettings, effectiveSettings, missingBaremeFallbackYear,
   quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
   estimateCotisations, thresholdStatus,
   type DeclarationSettings,
@@ -70,6 +70,8 @@ export default function DeclarationPage() {
   };
 
   const applied = effectiveSettings(settings, year);
+  // Barème de l'année pas encore enregistré : on prévient avant la déclaration.
+  const fallbackYear = settings.useOfficialRates ? missingBaremeFallbackYear(settings.regimeId, year) : null;
   const caRaw = quarterRevenueRaw(allYearTransactions, categories, quarter);
   const est = estimateCotisations(caRaw, applied);
   const uncat = quarterUncategorized(allYearTransactions, quarter);
@@ -116,6 +118,23 @@ export default function DeclarationPage() {
           </button>
         ))}
       </div>
+
+      {fallbackYear !== null && (
+        <div className="flex items-start gap-3 bg-yellow-50 border-2 border-secondary rounded-[20px] p-4 text-sm">
+          <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+          <p className="font-medium">Les taux officiels de {year} ne sont pas encore dans l'app.</p>
+          <p className="text-muted-foreground">
+            Les calculs ci-dessous reprennent ceux de {fallbackYear}. Avant de déclarer, vérifie le taux de cotisations
+            sur{' '}
+            <a className="underline" href="https://entreprendre.service-public.gouv.fr/vosdroits/F36232" target="_blank" rel="noreferrer">service-public.gouv.fr</a>
+            {' '}et le seuil du régime sur{' '}
+            <a className="underline" href="https://entreprendre.service-public.gouv.fr/vosdroits/F32353" target="_blank" rel="noreferrer">cette page</a>,
+            puis demande la mise à jour du barème (ou saisis le taux dans « Mes taux et mon régime »).
+          </p>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="bg-card rounded-[20px] shadow-soft h-[180px] animate-pulse" />

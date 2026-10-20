@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
   estimateCotisations, thresholdStatus, roundEuro, defaultSettings,
-  officialRates, effectiveSettings, loadSettings, saveSettings,
+  officialRates, effectiveSettings, loadSettings, saveSettings, missingBaremeFallbackYear,
 } from './declaration-utils';
 import { computeKpis, type Transaction, type Category } from './dashboard-utils';
 
@@ -127,5 +127,15 @@ describe('loadSettings : réglages enregistrés avant le barème par année', ()
     const s = loadSettings('u2');
     expect(s.useOfficialRates).toBe(false);
     expect(effectiveSettings(s, 2026).socialRate).toBe(12.3);
+  });
+});
+
+describe('rappel de mise à jour du barème', () => {
+  it('rien à signaler pour une année enregistrée', () => {
+    expect(missingBaremeFallbackYear('bnc', 2026)).toBeNull();
+    expect(missingBaremeFallbackYear('bnc', 2025)).toBeNull();
+  });
+  it('signale une année pas encore enregistrée et la dernière connue', () => {
+    expect(missingBaremeFallbackYear('bnc', 2027)).toBe(2026);
   });
 });
