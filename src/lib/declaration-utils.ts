@@ -14,6 +14,8 @@ export interface Regime {
   label: string;
   /** Cotisations sociales, en % du CA */
   socialRate: number;
+  /** Contribution à la formation professionnelle (CFP), en % du CA */
+  cfpRate: number;
   /** Versement libératoire de l'impôt (optionnel), en % du CA */
   liberatoireRate: number;
   /** Seuil annuel de chiffre d'affaires du régime micro */
@@ -25,21 +27,23 @@ export interface Regime {
  * « cotisations sociales du micro-entrepreneur » et F32353 « seuils du régime
  * micro », vérifiées en 2026). À compléter chaque 1er janvier : une année
  * absente reprend la dernière année connue qui la précède.
+ * CFP (fiche F23459) : 0,2 % en libéral, 0,1 % en commerce (0,3 % pour un
+ * artisan, à saisir à la main).
  */
-type Bareme = Pick<Regime, 'socialRate' | 'liberatoireRate' | 'plafond'>;
+type Bareme = Pick<Regime, 'socialRate' | 'cfpRate' | 'liberatoireRate' | 'plafond'>;
 
 export const BAREMES: Record<string, Record<number, Bareme>> = {
   bnc: {
-    2025: { socialRate: 24.6, liberatoireRate: 2.2, plafond: 77700 },
-    2026: { socialRate: 25.6, liberatoireRate: 2.2, plafond: 83600 },
+    2025: { socialRate: 24.6, cfpRate: 0.2, liberatoireRate: 2.2, plafond: 77700 },
+    2026: { socialRate: 25.6, cfpRate: 0.2, liberatoireRate: 2.2, plafond: 83600 },
   },
   bic_services: {
-    2025: { socialRate: 21.2, liberatoireRate: 1.7, plafond: 77700 },
-    2026: { socialRate: 21.2, liberatoireRate: 1.7, plafond: 83600 },
+    2025: { socialRate: 21.2, cfpRate: 0.1, liberatoireRate: 1.7, plafond: 77700 },
+    2026: { socialRate: 21.2, cfpRate: 0.1, liberatoireRate: 1.7, plafond: 83600 },
   },
   vente: {
-    2025: { socialRate: 12.3, liberatoireRate: 1.0, plafond: 188700 },
-    2026: { socialRate: 12.3, liberatoireRate: 1.0, plafond: 203100 },
+    2025: { socialRate: 12.3, cfpRate: 0.1, liberatoireRate: 1.0, plafond: 188700 },
+    2026: { socialRate: 12.3, cfpRate: 0.1, liberatoireRate: 1.0, plafond: 203100 },
   },
 };
 
@@ -75,6 +79,17 @@ export const REGIMES: Regime[] = REGIME_LABELS.map(r => ({
   ...officialRates(r.id, new Date().getFullYear()),
 }));
 
+/**
+ * Seuils de franchise en base de TVA pour les prestations de services (BNC/BIC) :
+ * en-dessous de la limite de base tu n'es pas redevable de la TVA ; entre les deux
+ * limites tu peux encore en être dispensée jusqu'à la fin de l'année en cours ;
+ * au-dessus de la limite majorée, la TVA s'applique dès le 1er jour du dépassement.
+ * Indicatif : vérifie toujours ta situation exacte sur impots.gouv.fr.
+ */
+export const TVA_LIMITE_BASE = 37500;
+export const TVA_LIMITE_MAJOREE = 41250;
+export const TVA_TAUX_NORMAL = 20;
+
 export interface DeclarationSettings {
   regimeId: string;
   /**
@@ -83,9 +98,14 @@ export interface DeclarationSettings {
    */
   useOfficialRates: boolean;
   socialRate: number;
+  cfpRate: number;
   liberatoireEnabled: boolean;
   liberatoireRate: number;
   plafond: number;
+  /** Date (AAAA-MM-JJ) à partir de laquelle tu factures la TVA ; vide = franchise. */
+  tvaStartDate: string;
+  /** Taux de TVA appliqué à partir de tvaStartDate, en %. */
+  tvaRate: number;
 }
 
 export function defaultSettings(): DeclarationSettings {
@@ -94,9 +114,12 @@ export function defaultSettings(): DeclarationSettings {
     regimeId: r.id,
     useOfficialRates: true,
     socialRate: r.socialRate,
+    cfpRate: r.cfpRate,
     liberatoireEnabled: false,
     liberatoireRate: r.liberatoireRate,
     plafond: r.plafond,
+    tvaStartDate: '',
+    tvaRate: TVA_TAUX_NORMAL,
   };
 }
 
@@ -192,6 +215,7 @@ export function yearRevenueRaw(
 export interface CotisationEstimate {
   caDeclared: number;   // CA arrondi à déclarer
   social: number;       // cotisations sociales estimées (arrondies)
+  cfp: number;          // contribution à la formation professionnelle (arrondie)
   liberatoire: number;  // versement libératoire estimé (arrondi, 0 si désactivé)
   total: number;        // total à mettre de côté (arrondi)
 }
@@ -206,10 +230,11 @@ export function estimateCotisations(
 ): CotisationEstimate {
   const caDeclared = roundEuro(quarterRevenueRawValue);
   const social = roundEuro(caDeclared * (settings.socialRate / 100));
+  const cfp = roundEuro(caDeclared * ((settings.cfpRate ?? 0) / 100));
   const liberatoire = settings.liberatoireEnabled
     ? roundEuro(caDeclared * (settings.liberatoireRate / 100))
     : 0;
-  return { caDeclared, social, liberatoire, total: social + liberatoire };
+  return { caDeclared, social, cfp, liberatoire, total: social + cfp + liberatoire };
 }
 
 export interface ThresholdStatus {

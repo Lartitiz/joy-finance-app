@@ -14,19 +14,11 @@ import { fetchDeclarationData, formatEur, type Transaction, type Category } from
 import {
   REGIMES, defaultSettings, loadSettings, saveSettings, effectiveSettings, missingBaremeFallbackYear,
   quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
-  estimateCotisations, thresholdStatus,
+  estimateCotisations, thresholdStatus, TVA_LIMITE_BASE, TVA_LIMITE_MAJOREE,
   type DeclarationSettings,
 } from '@/lib/declaration-utils';
 
-const Q_LABELS = ['Jan — Mar', 'Avr — Jun', 'Jul — Sep', 'Oct — Déc'];
-
-// Seuils de franchise en base de TVA pour les prestations de services (BNC/BIC) :
-// en-dessous de la limite de base tu n'es pas redevable de la TVA ; entre les deux
-// limites tu peux encore en être dispensée jusqu'à la fin de l'année en cours ;
-// au-dessus de la limite majorée, la TVA s'applique dès le 1er jour du dépassement.
-// Indicatif — vérifie toujours ta situation exacte sur impots.gouv.fr.
-const TVA_LIMITE_BASE = 37500;
-const TVA_LIMITE_MAJOREE = 41250;
+const Q_LABELS = ['Jan à Mar', 'Avr à Juin', 'Juil à Sep', 'Oct à Déc'];
 
 export default function DeclarationPage() {
   const { user } = useAuth();
@@ -83,7 +75,7 @@ export default function DeclarationPage() {
   const copyCA = async () => {
     try {
       await navigator.clipboard.writeText(String(est.caDeclared));
-      toast.success(`${est.caDeclared} € copié — colle-le dans ta déclaration`);
+      toast.success(`${est.caDeclared} € copié, colle-le dans ta déclaration`);
     } catch {
       toast.error('Copie impossible sur cet appareil');
     }
@@ -182,8 +174,11 @@ export default function DeclarationPage() {
             <p className="text-3xl font-mono text-accent">{est.total.toLocaleString('fr-FR')} €</p>
             <div className="space-y-1.5 text-sm">
               <Line label={`Cotisations sociales (${applied.socialRate} %)`} value={est.social} />
+              {applied.cfpRate > 0 && (
+                <Line label={`Formation professionnelle, CFP (${applied.cfpRate} %)`} value={est.cfp} />
+              )}
               {settings.liberatoireEnabled && (
-                <Line label={`Impôt — versement libératoire (${applied.liberatoireRate} %)`} value={est.liberatoire} />
+                <Line label={`Impôt, versement libératoire (${applied.liberatoireRate} %)`} value={est.liberatoire} />
               )}
             </div>
             <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -250,9 +245,28 @@ export default function DeclarationPage() {
                     onChange={e => updateManual({ socialRate: parseFloat(e.target.value) || 0 })} />
                 </div>
                 <div className="space-y-2">
+                  <Label>Formation professionnelle, CFP (%)</Label>
+                  <Input type="number" step="0.1" min="0" value={applied.cfpRate}
+                    onChange={e => updateManual({ cfpRate: parseFloat(e.target.value) || 0 })} />
+                </div>
+                <div className="space-y-2">
                   <Label>Plafond annuel du régime (€)</Label>
                   <Input type="number" step="100" min="0" value={applied.plafond}
                     onChange={e => updateManual({ plafond: parseFloat(e.target.value) || 0 })} />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Assujettie à la TVA à partir du</Label>
+                  <Input type="date" value={settings.tvaStartDate}
+                    onChange={e => updateSettings({ tvaStartDate: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">Laisse vide tant que tu es en franchise de TVA.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Taux de TVA (%)</Label>
+                  <Input type="number" step="0.1" min="0" value={settings.tvaRate}
+                    onChange={e => updateSettings({ tvaRate: parseFloat(e.target.value) || 0 })} />
                 </div>
               </div>
 
@@ -275,7 +289,7 @@ export default function DeclarationPage() {
 
               {settings.useOfficialRates ? (
                 <p className="text-xs text-muted-foreground">
-                  Taux et plafond officiels de {year}, mis à jour selon l'année affichée. Si tu les modifies (ACRE, CFP…), tes valeurs remplacent le barème, sur cet appareil.
+                  Taux et plafond officiels de {year}, mis à jour selon l'année affichée. Si tu les modifies (ACRE…), tes valeurs remplacent le barème, sur cet appareil.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
@@ -309,7 +323,7 @@ function TvaGaugeRow({ label, amount, status }: {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{label} — {amount.toLocaleString('fr-FR')} €</span>
+        <span className="text-muted-foreground">{label} : {amount.toLocaleString('fr-FR')} €</span>
         <span className={`font-mono ${status.over ? 'text-destructive' : status.warn ? 'text-yellow-600' : 'text-muted-foreground'}`}>
           {Math.round(status.pct)} %
         </span>
