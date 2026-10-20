@@ -186,7 +186,6 @@ export type Database = {
           description: string | null
           id: string
           notes: string | null
-          number: string | null
           paid_date: string | null
           status: string | null
           user_id: string
@@ -201,7 +200,6 @@ export type Database = {
           description?: string | null
           id?: string
           notes?: string | null
-          number?: string | null
           paid_date?: string | null
           status?: string | null
           user_id: string
@@ -216,7 +214,6 @@ export type Database = {
           description?: string | null
           id?: string
           notes?: string | null
-          number?: string | null
           paid_date?: string | null
           status?: string | null
           user_id?: string
