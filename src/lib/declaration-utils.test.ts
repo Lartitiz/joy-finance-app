@@ -43,7 +43,7 @@ describe('quarterUncategorized', () => {
 
 describe('estimateCotisations', () => {
   it('arrondit le CA à l\'euro puis applique les taux', () => {
-    const s = { ...defaultSettings(), socialRate: 22, liberatoireEnabled: false };
+    const s = { ...defaultSettings(), socialRate: 22, cfpRate: 0, liberatoireEnabled: false };
     const e = estimateCotisations(1000.49, s);
     expect(e.caDeclared).toBe(1000);
     expect(e.social).toBe(220);
@@ -52,11 +52,35 @@ describe('estimateCotisations', () => {
   });
 
   it('ajoute le versement libératoire quand activé', () => {
-    const s = { ...defaultSettings(), socialRate: 22, liberatoireEnabled: true, liberatoireRate: 2.2 };
+    const s = { ...defaultSettings(), socialRate: 22, cfpRate: 0, liberatoireEnabled: true, liberatoireRate: 2.2 };
     const e = estimateCotisations(1000, s);
     expect(e.social).toBe(220);
     expect(e.liberatoire).toBe(22);
     expect(e.total).toBe(242);
+  });
+});
+
+describe('CFP et taux total BNC 2026', () => {
+  it('25,6 % + 0,2 % de CFP = 25,8 % du CA', () => {
+    const s = effectiveSettings(defaultSettings(), 2026);
+    expect(s.socialRate + s.cfpRate).toBeCloseTo(25.8);
+    const e = estimateCotisations(10000, s);
+    expect(e.social).toBe(2560);
+    expect(e.cfp).toBe(20);
+    expect(e.total).toBe(2580);
+  });
+
+  it('réglages TVA vides par défaut, taux à 20 %', () => {
+    expect(defaultSettings().tvaStartDate).toBe('');
+    expect(defaultSettings().tvaRate).toBe(20);
+  });
+
+  it('anciens réglages sans CFP ni TVA : valeurs par défaut ajoutées', () => {
+    saveSettings('u3', { regimeId: 'bnc', socialRate: 23, liberatoireEnabled: false, liberatoireRate: 2.2, plafond: 77700 } as never);
+    const s = loadSettings('u3');
+    expect(s.cfpRate).toBe(0.2);
+    expect(s.tvaStartDate).toBe('');
+    expect(s.tvaRate).toBe(20);
   });
 });
 
