@@ -1,4 +1,4 @@
-import type { Transaction, Category } from './dashboard-utils';
+import { makeTransactionPredicates, type Transaction, type Category } from './dashboard-utils';
 
 /**
  * Aide au calcul des déclarations URSSAF pour la micro-entreprise.
@@ -71,21 +71,20 @@ export function roundEuro(n: number): number {
   return Math.round(n);
 }
 
-const isRevenue = (t: Transaction, revCatIds: Set<string>) =>
-  t.amount > 0 && !!t.category_id && revCatIds.has(t.category_id);
-
 /** Somme brute (non arrondie) du CA "revenu" d'un trimestre donné. */
 export function quarterRevenueRaw(
   allYearTransactions: Transaction[],
   categories: Category[],
   quarter: number,
 ): number {
-  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
+  // Même règle que le tableau de bord (catégorie revenu ET validée) : la
+  // Déclaration et le tableau de bord affichent toujours le même CA.
+  const { isRevenue } = makeTransactionPredicates(categories);
   const startMonth = (quarter - 1) * 3 + 1;
   const months = [startMonth, startMonth + 1, startMonth + 2];
   return allYearTransactions
     .filter(t => {
-      if (!isRevenue(t, revCatIds)) return false;
+      if (!isRevenue(t)) return false;
       const m = parseInt(t.date.slice(5, 7), 10);
       return months.includes(m);
     })
@@ -112,8 +111,8 @@ export function yearRevenueRaw(
   allYearTransactions: Transaction[],
   categories: Category[],
 ): number {
-  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
-  return allYearTransactions.filter(t => isRevenue(t, revCatIds)).reduce((s, t) => s + t.amount, 0);
+  const { isRevenue } = makeTransactionPredicates(categories);
+  return allYearTransactions.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
 }
 
 export interface CotisationEstimate {
