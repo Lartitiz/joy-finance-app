@@ -19,6 +19,7 @@ import {
 import { loadSettings, effectiveSettings } from '@/lib/declaration-utils';
 import { computeProvisions, urssafDeadline, upcomingDeadlineQuarter, todayIso } from '@/lib/provision-utils';
 import { ProvisionsCard } from '@/components/provisions/ProvisionsCard';
+import { fetchTreasurySummary, type TreasurySummary } from '@/lib/treasury-utils';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -42,6 +43,13 @@ export default function Dashboard() {
   }, [user, year, period, periodValue]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Trésorerie : même calcul que la page Trésorerie, indépendant de la période affichée.
+  const [treasury, setTreasury] = useState<TreasurySummary | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    fetchTreasurySummary(user.id).then(setTreasury).catch(() => setTreasury(null));
+  }, [user]);
 
   if (loading || !data) {
     return (
@@ -83,7 +91,7 @@ export default function Dashboard() {
   const objTarget = getObjectiveTarget(period, periodValue, quarterlyBreakdown);
   const objPct = objTarget ? Math.min(100, Math.round((kpis.revenue / objTarget) * 100)) : null;
   const catMap = new Map(data.categories.map(c => [c.id, c]));
-  const totalBalance = data.bankAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
+  const totalBalance = treasury?.balance.total ?? data.bankAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
   const sparkline = buildSparklineData(data.sparklineData);
 
   // CA annuel = exactement la somme des 4 trimestres (même filtre "revenu"),
@@ -146,7 +154,7 @@ export default function Dashboard() {
           icon={<TrendingDown className="h-5 w-5 text-destructive" />} />
         {kpis.remuneration > 0 && (
           <KpiCard label="Rémunération" value={formatEur(kpis.remuneration)}
-            variation="ce que tu t'es reversé — hors dépenses"
+            variation="ce que tu t'es reversé, hors dépenses"
             positive={true}
             icon={<Scale className="h-5 w-5 text-muted-foreground" />} />
         )}
@@ -224,7 +232,7 @@ export default function Dashboard() {
         transactions={data.transactions} categories={data.categories} type="expense" />
 
       {/* Treasury */}
-      <TreasuryCard totalBalance={totalBalance} sparkline={sparkline} hasBankAccounts={data.bankAccounts.length > 0} />
+      <TreasuryCard totalBalance={totalBalance} disponible={treasury?.disponible ?? null} sparkline={sparkline} hasBankAccounts={data.bankAccounts.length > 0} />
 
       {/* Latest transactions */}
       <LatestTransactions transactions={data.transactions} catMap={catMap} />
@@ -543,8 +551,8 @@ function MonthlyChart({ chartData, period, quarterVal, monthVal }: {
 
 /* ─── Treasury card ─── */
 
-function TreasuryCard({ totalBalance, sparkline, hasBankAccounts }: {
-  totalBalance: number; sparkline: { month: string; net: number }[]; hasBankAccounts: boolean;
+function TreasuryCard({ totalBalance, disponible, sparkline, hasBankAccounts }: {
+  totalBalance: number; disponible: number | null; sparkline: { month: string; net: number }[]; hasBankAccounts: boolean;
 }) {
   if (!hasBankAccounts) {
     return (
@@ -563,6 +571,11 @@ function TreasuryCard({ totalBalance, sparkline, hasBankAccounts }: {
           <p className={`text-3xl font-mono ${totalBalance >= 0 ? 'text-green-600' : 'text-destructive'}`}>
             {formatEur(totalBalance)}
           </p>
+          {disponible !== null && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Disponible réel <span className={`font-mono ${disponible >= 0 ? 'text-accent' : 'text-destructive'}`}>{formatEur(disponible)}</span>
+            </p>
+          )}
         </div>
         {sparkline.length > 1 && (
           <div className="w-[140px] h-[40px]">
