@@ -20,6 +20,8 @@ import { loadSettings, effectiveSettings } from '@/lib/declaration-utils';
 import { computeProvisions, urssafDeadline, upcomingDeadlineQuarter, todayIso } from '@/lib/provision-utils';
 import { ProvisionsCard } from '@/components/provisions/ProvisionsCard';
 import { fetchTreasurySummary, type TreasurySummary } from '@/lib/treasury-utils';
+import { computeReceivables, type Invoice, type Receivables } from '@/lib/invoice-utils';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -49,6 +51,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) return;
     fetchTreasurySummary(user.id).then(setTreasury).catch(() => setTreasury(null));
+  }, [user]);
+
+  // Factures émises non payées (page Factures), indépendantes de la période affichée.
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('invoices').select('*').eq('user_id', user.id)
+      .then(({ data }) => setInvoices((data ?? []) as Invoice[]));
   }, [user]);
 
   if (loading || !data) {
@@ -181,6 +191,8 @@ export default function Dashboard() {
       </div>
 
       <ProvisionsCard periodLabel={periodLabel} provisions={provisions} settings={declSettings} deadline={deadline} />
+
+      {invoices !== null && <ReceivablesCard receivables={computeReceivables(invoices, today)} hasInvoices={invoices.length > 0} />}
 
       {/* Activity KPI cards */}
       {activityAgg.hasData && (
@@ -545,6 +557,53 @@ function MonthlyChart({ chartData, period, quarterVal, monthVal }: {
           )}
         </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ─── À encaisser ─── */
+
+function ReceivablesCard({ receivables: r, hasInvoices }: { receivables: Receivables; hasInvoices: boolean }) {
+  if (!hasInvoices) {
+    return (
+      <div className="bg-card rounded-[20px] shadow-soft p-5 text-center">
+        <h2 className="text-lg text-accent mb-2">À encaisser</h2>
+        <Link to="/factures" className="text-sm text-primary hover:underline">Ajoute tes factures émises →</Link>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg text-accent">À encaisser</h2>
+        <Link to="/factures" className="text-sm text-primary hover:underline whitespace-nowrap">Voir les factures →</Link>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-sm text-muted-foreground">Non payé</p>
+          <p className="text-2xl font-mono text-accent">{formatEur(r.unpaidTotal)}</p>
+          <p className="text-xs text-muted-foreground">{r.unpaidCount} facture{r.unpaidCount > 1 ? 's' : ''}</p>
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">En retard</p>
+          <p className={`text-2xl font-mono ${r.lateTotal > 0 ? 'text-destructive' : 'text-accent'}`}>{formatEur(r.lateTotal)}</p>
+          <p className="text-xs text-muted-foreground">{r.lateCount} facture{r.lateCount > 1 ? 's' : ''}</p>
+        </div>
+      </div>
+      {r.lateOver30.length > 0 && (
+        <div className="border-t border-border pt-3 space-y-1.5 text-sm">
+          <p className="text-xs text-muted-foreground">Retards de plus de 30 jours</p>
+          {r.lateOver30.map(({ invoice, days }) => (
+            <div key={invoice.id} className="flex items-center justify-between gap-3">
+              <span className="truncate">{invoice.client_name}{invoice.number ? ` · ${invoice.number}` : ''}</span>
+              <span className="flex items-center gap-3 whitespace-nowrap">
+                <span className="font-mono text-xs text-destructive">{days} j</span>
+                <span className="font-mono text-accent">{formatEur(invoice.amount)}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

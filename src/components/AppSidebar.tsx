@@ -7,6 +7,7 @@ import {
   Settings,
   Receipt,
   LogOut,
+  FileText,
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useLocation } from 'react-router-dom';
@@ -29,6 +30,7 @@ const items = [
   { title: 'Catégories', url: '/categories', icon: Tags },
   { title: 'Objectifs', url: '/objectifs', icon: Target },
   { title: 'Trésorerie', url: '/tresorerie', icon: Wallet },
+  { title: 'Factures', url: '/factures', icon: FileText },
   { title: 'Déclaration', url: '/declaration', icon: Receipt },
   { title: 'Paramètres', url: '/parametres', icon: Settings },
 ];
