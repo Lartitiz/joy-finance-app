@@ -20,14 +20,56 @@ export interface Regime {
   plafond: number;
 }
 
-export const REGIMES: Regime[] = [
-  { id: 'bnc', label: 'Prestations libérales (BNC)', socialRate: 24.6, liberatoireRate: 2.2, plafond: 77700 },
-  { id: 'bic_services', label: 'Prestations de services (BIC)', socialRate: 21.2, liberatoireRate: 1.7, plafond: 77700 },
-  { id: 'vente', label: 'Vente de marchandises / hébergement', socialRate: 12.3, liberatoireRate: 1.0, plafond: 188700 },
+/**
+ * Barème officiel par année (source : service-public.gouv.fr, fiches F36232
+ * « cotisations sociales du micro-entrepreneur » et F32353 « seuils du régime
+ * micro », vérifiées en 2026). À compléter chaque 1er janvier : une année
+ * absente reprend la dernière année connue qui la précède.
+ */
+type Bareme = Pick<Regime, 'socialRate' | 'liberatoireRate' | 'plafond'>;
+
+export const BAREMES: Record<string, Record<number, Bareme>> = {
+  bnc: {
+    2025: { socialRate: 24.6, liberatoireRate: 2.2, plafond: 77700 },
+    2026: { socialRate: 25.6, liberatoireRate: 2.2, plafond: 83600 },
+  },
+  bic_services: {
+    2025: { socialRate: 21.2, liberatoireRate: 1.7, plafond: 77700 },
+    2026: { socialRate: 21.2, liberatoireRate: 1.7, plafond: 83600 },
+  },
+  vente: {
+    2025: { socialRate: 12.3, liberatoireRate: 1.0, plafond: 188700 },
+    2026: { socialRate: 12.3, liberatoireRate: 1.0, plafond: 203100 },
+  },
+};
+
+const REGIME_LABELS: { id: string; label: string }[] = [
+  { id: 'bnc', label: 'Prestations libérales (BNC)' },
+  { id: 'bic_services', label: 'Prestations de services (BIC)' },
+  { id: 'vente', label: 'Vente de marchandises / hébergement' },
 ];
+
+/** Barème officiel d'un régime pour une année donnée. */
+export function officialRates(regimeId: string, year: number): Bareme {
+  const table = BAREMES[regimeId] ?? BAREMES.bnc;
+  const years = Object.keys(table).map(Number).sort((a, b) => a - b);
+  const known = years.filter(y => y <= year);
+  return table[known.length > 0 ? known[known.length - 1] : years[0]];
+}
+
+/** Régimes avec le barème de l'année en cours (pour les valeurs par défaut). */
+export const REGIMES: Regime[] = REGIME_LABELS.map(r => ({
+  ...r,
+  ...officialRates(r.id, new Date().getFullYear()),
+}));
 
 export interface DeclarationSettings {
   regimeId: string;
+  /**
+   * true : taux et plafond suivent le barème officiel de l'année affichée.
+   * false : on garde les valeurs saisies à la main ci-dessous.
+   */
+  useOfficialRates: boolean;
   socialRate: number;
   liberatoireEnabled: boolean;
   liberatoireRate: number;
@@ -38,11 +80,27 @@ export function defaultSettings(): DeclarationSettings {
   const r = REGIMES[0];
   return {
     regimeId: r.id,
+    useOfficialRates: true,
     socialRate: r.socialRate,
     liberatoireEnabled: false,
     liberatoireRate: r.liberatoireRate,
     plafond: r.plafond,
   };
+}
+
+/** Réglages réellement appliqués pour une année : barème officiel ou saisie manuelle. */
+export function effectiveSettings(settings: DeclarationSettings, year: number): DeclarationSettings {
+  if (!settings.useOfficialRates) return settings;
+  return { ...settings, ...officialRates(settings.regimeId, year) };
+}
+
+/** Vrai si les taux enregistrés sont exactement un barème officiel (jamais retouchés). */
+function matchesSomeOfficialBareme(s: Partial<DeclarationSettings>): boolean {
+  const table = BAREMES[s.regimeId ?? 'bnc'];
+  if (!table) return false;
+  return Object.values(table).some(b =>
+    b.socialRate === s.socialRate && b.plafond === s.plafond
+    && (s.liberatoireRate === undefined || b.liberatoireRate === s.liberatoireRate));
 }
 
 const STORAGE_PREFIX = 'joy-declaration-settings:';
@@ -51,8 +109,12 @@ export function loadSettings(userId: string): DeclarationSettings {
   try {
     const raw = localStorage.getItem(STORAGE_PREFIX + userId);
     if (!raw) return defaultSettings();
-    const parsed = JSON.parse(raw);
-    return { ...defaultSettings(), ...parsed };
+    const parsed = JSON.parse(raw) as Partial<DeclarationSettings>;
+    // Réglages enregistrés avant le barème par année : s'ils reprennent tels
+    // quels un barème officiel (ex. 24,6 % / 77 700 €), ils suivent désormais
+    // l'année affichée ; s'ils ont été retouchés, on les garde.
+    const useOfficialRates = parsed.useOfficialRates ?? matchesSomeOfficialBareme(parsed);
+    return { ...defaultSettings(), ...parsed, useOfficialRates };
   } catch {
     return defaultSettings();
   }

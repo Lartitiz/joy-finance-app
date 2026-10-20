@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
   estimateCotisations, thresholdStatus, roundEuro, defaultSettings,
+  officialRates, effectiveSettings, loadSettings, saveSettings,
 } from './declaration-utils';
 import { computeKpis, type Transaction, type Category } from './dashboard-utils';
 
@@ -90,5 +91,41 @@ describe('même CA que le tableau de bord', () => {
     expect(quarterRevenueRaw(txs, cats, 1)).toBe(1000);
     expect(yearRevenueRaw(txs, cats)).toBe(1000);
     expect(yearRevenueRaw(txs, cats)).toBe(computeKpis(txs, [], cats).revenue);
+  });
+});
+
+describe('barème officiel par année', () => {
+  it('BNC : 24,6 % / 77 700 € en 2025, 25,6 % / 83 600 € en 2026', () => {
+    expect(officialRates('bnc', 2025)).toMatchObject({ socialRate: 24.6, plafond: 77700 });
+    expect(officialRates('bnc', 2026)).toMatchObject({ socialRate: 25.6, plafond: 83600 });
+  });
+
+  it('une année absente reprend la dernière année connue', () => {
+    expect(officialRates('bnc', 2027).socialRate).toBe(25.6);
+    expect(officialRates('bnc', 2023).socialRate).toBe(24.6);
+  });
+
+  it('effectiveSettings suit l\'année affichée, sauf saisie manuelle', () => {
+    const official = { ...defaultSettings(), useOfficialRates: true };
+    expect(effectiveSettings(official, 2025).socialRate).toBe(24.6);
+    expect(effectiveSettings(official, 2026).socialRate).toBe(25.6);
+    const manual = { ...official, useOfficialRates: false, socialRate: 23 };
+    expect(effectiveSettings(manual, 2026).socialRate).toBe(23);
+  });
+});
+
+describe('loadSettings : réglages enregistrés avant le barème par année', () => {
+  it('24,6 % / 77 700 € enregistrés tels quels → suivent désormais le barème', () => {
+    saveSettings('u1', { regimeId: 'bnc', socialRate: 24.6, liberatoireEnabled: false, liberatoireRate: 2.2, plafond: 77700 } as never);
+    const s = loadSettings('u1');
+    expect(s.useOfficialRates).toBe(true);
+    expect(effectiveSettings(s, 2026).socialRate).toBe(25.6);
+  });
+
+  it('un taux retouché à la main est gardé', () => {
+    saveSettings('u2', { regimeId: 'bnc', socialRate: 12.3, liberatoireEnabled: false, liberatoireRate: 2.2, plafond: 77700 } as never);
+    const s = loadSettings('u2');
+    expect(s.useOfficialRates).toBe(false);
+    expect(effectiveSettings(s, 2026).socialRate).toBe(12.3);
   });
 });
