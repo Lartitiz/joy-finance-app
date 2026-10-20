@@ -51,26 +51,41 @@ export function CategoryList() {
     const now = new Date();
     const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
-    const [catRes, txRes] = await Promise.all([
-      // monthly_cap omis tant que la migration n'est pas synchronisée (voir handleSave).
+    // Toutes les transactions catégorisées, page par page : Supabase plafonne
+    // une réponse à 1 000 lignes, au-delà les compteurs et le plafond du mois
+    // seraient faux.
+    const fetchCategorizedTx = async () => {
+      const PAGE = 1000;
+      let all: { category_id: string | null; amount: number; date: string }[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('category_id, amount, date')
+          .eq('user_id', user.id)
+          .not('category_id', 'is', null)
+          .order('id')
+          .range(from, from + PAGE - 1);
+        if (error) return null;
+        all = all.concat(data ?? []);
+        if ((data?.length ?? 0) < PAGE) return all;
+      }
+    };
+
+    const [catRes, txRows] = await Promise.all([
       supabase
         .from('categories')
-        .select('id, name, emoji, color, type, is_default, sort_order')
+        .select('id, name, emoji, color, type, is_default, sort_order, monthly_cap')
         .eq('user_id', user.id)
         .order('sort_order')
         .order('name'),
-      supabase
-        .from('transactions')
-        .select('category_id, amount, date')
-        .eq('user_id', user.id)
-        .not('category_id', 'is', null),
+      fetchCategorizedTx(),
     ]);
 
-    if (catRes.data) setCategories(catRes.data.map((c) => ({ ...c, monthly_cap: null })));
+    if (catRes.data) setCategories(catRes.data);
 
-    if (txRes.data) {
+    if (txRows) {
       const statsMap = new Map<string, CategoryStats>();
-      for (const tx of txRes.data) {
+      for (const tx of txRows) {
         if (!tx.category_id) continue;
         const existing = statsMap.get(tx.category_id) || { category_id: tx.category_id, tx_count: 0, month_total: 0 };
         existing.tx_count++;
@@ -102,14 +117,14 @@ export function CategoryList() {
   const handleSave = async (data: { name: string; emoji: string; color: string; type: string; monthly_cap: number | null }) => {
     if (!user) return;
 
-    // monthly_cap est temporairement omis des écritures : la colonne n'existe pas
-    // encore côté Supabase tant que la migration n'a pas été synchronisée via
-    // Lovable. La sauvegarder ici ferait échouer TOUTE création/édition de
-    // catégorie. À rebrancher (voir dashboard-utils.ts) une fois la migration live.
+    // Le plafond n'a de sens que pour une sortie d'argent : on l'efface si la
+    // catégorie devient un revenu (le champ n'est alors plus affiché).
+    const monthly_cap = data.type === 'expense' || data.type === 'remuneration' ? data.monthly_cap : null;
+
     if (editingCategory) {
       const { error } = await supabase
         .from('categories')
-        .update({ name: data.name, emoji: data.emoji, color: data.color, type: data.type })
+        .update({ name: data.name, emoji: data.emoji, color: data.color, type: data.type, monthly_cap })
         .eq('id', editingCategory.id);
       if (error) {
         toast.error(error.message.includes('unique') ? 'Ce nom de catégorie existe déjà.' : error.message);
@@ -128,6 +143,7 @@ export function CategoryList() {
         color: data.color,
         type: data.type,
         sort_order: maxOrder + 1,
+        monthly_cap,
       });
       if (error) {
         toast.error(error.message.includes('unique') ? 'Ce nom de catégorie existe déjà.' : error.message);
