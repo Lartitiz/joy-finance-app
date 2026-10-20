@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { fetchDeclarationData, formatEur, type Transaction, type Category } from '@/lib/dashboard-utils';
 import {
-  REGIMES, defaultSettings, loadSettings, saveSettings,
+  REGIMES, defaultSettings, loadSettings, saveSettings, effectiveSettings,
   quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
   estimateCotisations, thresholdStatus,
   type DeclarationSettings,
@@ -59,16 +59,22 @@ export default function DeclarationPage() {
     });
   };
 
+  // Changer de régime repart du barème officiel de ce régime.
   const onRegimeChange = (regimeId: string) => {
-    const r = REGIMES.find(r => r.id === regimeId);
-    if (r) updateSettings({ regimeId, socialRate: r.socialRate, liberatoireRate: r.liberatoireRate, plafond: r.plafond });
+    updateSettings({ regimeId, useOfficialRates: true });
   };
 
+  // Une saisie manuelle fige les valeurs affichées et quitte le barème officiel.
+  const updateManual = (patch: Partial<DeclarationSettings>) => {
+    updateSettings({ ...applied, ...patch, useOfficialRates: false });
+  };
+
+  const applied = effectiveSettings(settings, year);
   const caRaw = quarterRevenueRaw(allYearTransactions, categories, quarter);
-  const est = estimateCotisations(caRaw, settings);
+  const est = estimateCotisations(caRaw, applied);
   const uncat = quarterUncategorized(allYearTransactions, quarter);
   const yearRevenue = yearRevenueRaw(allYearTransactions, categories);
-  const threshold = thresholdStatus(yearRevenue, settings.plafond);
+  const threshold = thresholdStatus(yearRevenue, applied.plafond);
   const tvaBase = thresholdStatus(yearRevenue, TVA_LIMITE_BASE);
   const tvaMajoree = thresholdStatus(yearRevenue, TVA_LIMITE_MAJOREE);
 
@@ -156,9 +162,9 @@ export default function DeclarationPage() {
             </div>
             <p className="text-3xl font-mono text-accent">{est.total.toLocaleString('fr-FR')} €</p>
             <div className="space-y-1.5 text-sm">
-              <Line label={`Cotisations sociales (${settings.socialRate} %)`} value={est.social} />
+              <Line label={`Cotisations sociales (${applied.socialRate} %)`} value={est.social} />
               {settings.liberatoireEnabled && (
-                <Line label={`Impôt — versement libératoire (${settings.liberatoireRate} %)`} value={est.liberatoire} />
+                <Line label={`Impôt — versement libératoire (${applied.liberatoireRate} %)`} value={est.liberatoire} />
               )}
             </div>
             <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -221,13 +227,13 @@ export default function DeclarationPage() {
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Taux de cotisations sociales (%)</Label>
-                  <Input type="number" step="0.1" min="0" value={settings.socialRate}
-                    onChange={e => updateSettings({ socialRate: parseFloat(e.target.value) || 0 })} />
+                  <Input type="number" step="0.1" min="0" value={applied.socialRate}
+                    onChange={e => updateManual({ socialRate: parseFloat(e.target.value) || 0 })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Plafond annuel du régime (€)</Label>
-                  <Input type="number" step="100" min="0" value={settings.plafond}
-                    onChange={e => updateSettings({ plafond: parseFloat(e.target.value) || 0 })} />
+                  <Input type="number" step="100" min="0" value={applied.plafond}
+                    onChange={e => updateManual({ plafond: parseFloat(e.target.value) || 0 })} />
                 </div>
               </div>
 
@@ -243,14 +249,23 @@ export default function DeclarationPage() {
               {settings.liberatoireEnabled && (
                 <div className="space-y-2">
                   <Label>Taux du versement libératoire (%)</Label>
-                  <Input type="number" step="0.1" min="0" value={settings.liberatoireRate}
-                    onChange={e => updateSettings({ liberatoireRate: parseFloat(e.target.value) || 0 })} />
+                  <Input type="number" step="0.1" min="0" value={applied.liberatoireRate}
+                    onChange={e => updateManual({ liberatoireRate: parseFloat(e.target.value) || 0 })} />
                 </div>
               )}
 
-              <p className="text-xs text-muted-foreground">
-                Les taux et plafonds proposés sont indicatifs. Ajuste-les à ta situation exacte (URSSAF, ACRE, CFP…). Tes réglages sont enregistrés sur cet appareil.
-              </p>
+              {settings.useOfficialRates ? (
+                <p className="text-xs text-muted-foreground">
+                  Taux et plafond officiels de {year}, mis à jour selon l'année affichée. Si tu les modifies (ACRE, CFP…), tes valeurs remplacent le barème, sur cet appareil.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Tu utilises tes propres taux, les mêmes pour toutes les années.{' '}
+                  <button type="button" className="underline text-accent" onClick={() => updateSettings({ useOfficialRates: true })}>
+                    Revenir aux taux officiels de chaque année
+                  </button>
+                </p>
+              )}
             </div>
           </details>
         </>
