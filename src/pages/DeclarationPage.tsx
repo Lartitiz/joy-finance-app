@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { ChevronLeft, ChevronRight, Copy, AlertTriangle, PiggyBank, Receipt, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, AlertTriangle, Receipt, Info } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -13,10 +13,12 @@ import {
 import { fetchDeclarationData, formatEur, type Transaction, type Category } from '@/lib/dashboard-utils';
 import {
   REGIMES, defaultSettings, loadSettings, saveSettings, effectiveSettings, missingBaremeFallbackYear,
-  quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
+  quarterUncategorized,
   estimateCotisations, thresholdStatus, TVA_LIMITE_BASE, TVA_LIMITE_MAJOREE,
   type DeclarationSettings,
 } from '@/lib/declaration-utils';
+import { computeProvisions, splitRevenue, urssafDeadline, todayIso } from '@/lib/provision-utils';
+import { ProvisionsCard } from '@/components/provisions/ProvisionsCard';
 
 const Q_LABELS = ['Jan à Mar', 'Avr à Juin', 'Juil à Sep', 'Oct à Déc'];
 
@@ -64,10 +66,16 @@ export default function DeclarationPage() {
   const applied = effectiveSettings(settings, year);
   // Barème de l'année pas encore enregistré : on prévient avant la déclaration.
   const fallbackYear = settings.useOfficialRates ? missingBaremeFallbackYear(settings.regimeId, year) : null;
-  const caRaw = quarterRevenueRaw(allYearTransactions, categories, quarter);
+  const quarterTxs = allYearTransactions.filter(t => Math.ceil(parseInt(t.date.slice(5, 7), 10) / 3) === quarter);
+  // À partir de l'assujettissement, on déclare le CA hors taxe : la TVA collectée ne compte pas.
+  const split = splitRevenue(quarterTxs, categories, applied);
+  const caRaw = split.ht;
   const est = estimateCotisations(caRaw, applied);
+  const provisions = computeProvisions(quarterTxs, categories, applied);
+  const deadline = urssafDeadline(allYearTransactions, categories, applied, year, quarter, todayIso());
   const uncat = quarterUncategorized(allYearTransactions, quarter);
-  const yearRevenue = yearRevenueRaw(allYearTransactions, categories);
+  // Seuils comparés au CA hors taxe, comme le CA déclaré.
+  const yearRevenue = splitRevenue(allYearTransactions, categories, applied).ht;
   const threshold = thresholdStatus(yearRevenue, applied.plafond);
   const tvaBase = thresholdStatus(yearRevenue, TVA_LIMITE_BASE);
   const tvaMajoree = thresholdStatus(yearRevenue, TVA_LIMITE_MAJOREE);
@@ -148,6 +156,11 @@ export default function DeclarationPage() {
             <p className="text-xs text-muted-foreground">
               Montant encaissé du trimestre, arrondi à l'euro (comme le demande l'URSSAF). Total exact : {formatEur(caRaw)}.
             </p>
+            {split.tva > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Hors taxe : sur <span className="font-mono">{formatEur(split.ttc)}</span> encaissés, <span className="font-mono">{formatEur(split.tva)}</span> de TVA collectée ne sont pas à déclarer.
+              </p>
+            )}
           </div>
 
           {/* Alerte non catégorisé */}
@@ -165,27 +178,8 @@ export default function DeclarationPage() {
             </Link>
           )}
 
-          {/* Cotisations estimées */}
-          <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg text-accent">À mettre de côté pour ce trimestre</h2>
-              <PiggyBank className="h-5 w-5 text-primary" />
-            </div>
-            <p className="text-3xl font-mono text-accent">{est.total.toLocaleString('fr-FR')} €</p>
-            <div className="space-y-1.5 text-sm">
-              <Line label={`Cotisations sociales (${applied.socialRate} %)`} value={est.social} />
-              {applied.cfpRate > 0 && (
-                <Line label={`Formation professionnelle, CFP (${applied.cfpRate} %)`} value={est.cfp} />
-              )}
-              {settings.liberatoireEnabled && (
-                <Line label={`Impôt, versement libératoire (${applied.liberatoireRate} %)`} value={est.liberatoire} />
-              )}
-            </div>
-            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              Estimation basée sur les taux réglés plus bas. Vérifie toujours le montant officiel affiché par l'URSSAF.
-            </p>
-          </div>
+          {/* À mettre de côté */}
+          <ProvisionsCard periodLabel={`T${quarter} ${year}`} provisions={provisions} settings={applied} deadline={deadline} />
 
           {/* Seuil micro */}
           <div className="bg-card rounded-[20px] shadow-soft p-6 space-y-3">
@@ -303,15 +297,6 @@ export default function DeclarationPage() {
           </details>
         </>
       )}
-    </div>
-  );
-}
-
-function Line({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono text-accent">{value.toLocaleString('fr-FR')} €</span>
     </div>
   );
 }
