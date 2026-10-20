@@ -80,8 +80,6 @@ export default function Dashboard() {
   const objTarget = getObjectiveTarget(period, periodValue, quarterlyBreakdown);
   const objPct = objTarget ? Math.min(100, Math.round((kpis.revenue / objTarget) * 100)) : null;
   const catMap = new Map(data.categories.map(c => [c.id, c]));
-  const topRevenues = computeTopCategories(data.transactions, data.categories, 'revenue', 10);
-  const topExpenses = computeTopCategories(data.transactions, data.categories, 'expense', 10);
   const totalBalance = data.bankAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
   const sparkline = buildSparklineData(data.sparklineData);
 
@@ -420,25 +418,17 @@ function TreemapContent(props: any) {
 function TreemapSection({ title, transactions, categories, type }: {
   title: string; transactions: Transaction[]; categories: Category[]; type: 'revenue' | 'expense';
 }) {
-  const catMap = new Map(categories.map(c => [c.id, c]));
-  const totals = new Map<string, number>();
-  const total = { sum: 0 };
-
-  for (const tx of transactions) {
-    if (!tx.category_id) continue;
-    if (type === 'revenue' && tx.amount <= 0) continue;
-    if (type === 'expense' && tx.amount >= 0) continue;
-    const abs = Math.abs(tx.amount);
-    total.sum += abs;
-    totals.set(tx.category_id, (totals.get(tx.category_id) ?? 0) + abs);
-  }
-
-  const items: TreemapItem[] = Array.from(totals.entries())
-    .map(([catId, val]) => {
-      const cat = catMap.get(catId);
-      return { name: cat?.name ?? 'Autre', emoji: cat?.emoji ?? '❓', color: cat?.color ?? '95A5A6', value: val, pct: total.sum > 0 ? Math.round((val / total.sum) * 100) : 0 };
-    })
-    .sort((a, b) => b.value - a.value);
+  // Mêmes règles que les cartes : CA validé d'un côté, vraies dépenses
+  // (rémunération exclue) de l'autre.
+  const top = computeTopCategories(transactions, categories, type);
+  const sum = top.reduce((s, c) => s + c.total, 0);
+  const items: TreemapItem[] = top.map(c => ({
+    name: c.name === 'Inconnu' ? 'Autre' : c.name,
+    emoji: c.emoji || '❓',
+    color: c.color,
+    value: c.total,
+    pct: sum > 0 ? Math.round((c.total / sum) * 100) : 0,
+  }));
 
   if (items.length === 0) {
     return (
@@ -486,9 +476,15 @@ function MonthlyChart({ chartData, period, quarterVal, monthVal }: {
     hlEnd = hlStart;
   }
 
+  const yearRemuneration = chartData.reduce((s, d) => s + d.remuneration, 0);
+
   return (
     <div className="bg-card rounded-[20px] shadow-soft p-6">
-      <h2 className="text-lg text-accent mb-4">Évolution mois par mois</h2>
+      <h2 className="text-lg text-accent mb-1">Évolution mois par mois</h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Dépenses hors rémunération · Net = CA - dépenses
+        {yearRemuneration > 0 && <> · Rémunération sur l'année : {formatEur(yearRemuneration)}, comptée à part</>}
+      </p>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart data={chartData} barGap={4}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(340 20% 92%)" vertical={false} />

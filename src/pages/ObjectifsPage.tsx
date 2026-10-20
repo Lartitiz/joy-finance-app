@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { ChevronLeft, ChevronRight, Save, Plus, ChevronDown, ChevronUp, Trash2, Info, Phone, Users, Target } from 'lucide-react';
-import { formatEur } from '@/lib/dashboard-utils';
+import { formatEur, fetchDeclarationData, makeTransactionPredicates } from '@/lib/dashboard-utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   computeAllQuarters,
@@ -97,9 +97,6 @@ export default function ObjectifsPage() {
     if (!user) return;
     setLoading(true);
 
-    const yearStart = `${year}-01-01`;
-    const yearEnd = `${year + 1}-01-01`;
-
     const qMonths = quarterMonths(selectedQ);
 
     const [offersRes, qObjRes, allQObjRes, txRes, signedRes, actKpiRes, actTargetRes] = await Promise.all([
@@ -108,7 +105,9 @@ export default function ObjectifsPage() {
       // Toutes années : un client récurrent signé l'an dernier peut encore compter
       // dans l'objectif de cette année — voir computeAllQuarters.
       supabase.from('quarterly_objectives').select('*').eq('user_id', user.id),
-      supabase.from('transactions').select('date, amount').eq('user_id', user.id).gte('date', yearStart).lt('date', yearEnd),
+      // Mêmes transactions (paginées) et même règle de CA que le tableau de bord
+      // et la Déclaration : catégorie revenu validée uniquement.
+      fetchDeclarationData(user.id, year).catch(() => ({ allYearTransactions: [], categories: [] })),
       supabase.from('monthly_signed_revenue').select('id, year, month, total_signed')
         .eq('user_id', user.id).eq('year', year)
         .in('month', qMonths),
@@ -144,13 +143,13 @@ export default function ObjectifsPage() {
 
     setQuarterSummaries(computeAllQuarters(fetchedOffers, fetchedAllQObj, year));
 
-    const txs = txRes.data ?? [];
-    const totalRev = txs.filter(t => t.amount > 0).reduce((s, t) => s + Number(t.amount), 0);
+    const { isRevenue } = makeTransactionPredicates(txRes.categories);
+    const txs = txRes.allYearTransactions.filter(isRevenue);
+    const totalRev = txs.reduce((s, t) => s + Number(t.amount), 0);
     setYearlyActualRevenue(totalRev);
 
     const qActuals: [number, number, number, number] = [0, 0, 0, 0];
     for (const tx of txs) {
-      if (tx.amount <= 0) continue;
       const m = parseInt(tx.date.slice(5, 7), 10);
       const q = Math.ceil(m / 3);
       qActuals[q - 1] += Number(tx.amount);

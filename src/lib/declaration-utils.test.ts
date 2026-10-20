@@ -3,7 +3,7 @@ import {
   quarterRevenueRaw, quarterUncategorized, yearRevenueRaw,
   estimateCotisations, thresholdStatus, roundEuro, defaultSettings,
 } from './declaration-utils';
-import type { Transaction, Category } from './dashboard-utils';
+import { computeKpis, type Transaction, type Category } from './dashboard-utils';
 
 const cats: Category[] = [
   { id: 'rev', name: 'Presta', emoji: null, color: null, type: 'revenue' },
@@ -12,7 +12,7 @@ const cats: Category[] = [
 
 const tx = (p: Partial<Transaction>): Transaction => ({
   id: Math.random().toString(36), date: '2026-02-10', label: 'x', amount: 0,
-  category_id: 'rev', source: 'import', is_validated: false, ...p,
+  category_id: 'rev', source: 'import', is_validated: true, ...p,
 });
 
 describe('quarterRevenueRaw', () => {
@@ -78,5 +78,17 @@ describe('yearRevenueRaw / roundEuro', () => {
     ];
     expect(yearRevenueRaw(txs, cats)).toBe(3000);
     expect(roundEuro(3000.5)).toBe(3001);
+  });
+});
+
+describe('même CA que le tableau de bord', () => {
+  it('exclut une transaction catégorisée revenu mais pas validée, comme computeKpis', () => {
+    const txs = [
+      tx({ date: '2026-02-10', amount: 1000 }),
+      tx({ date: '2026-02-11', amount: 400, is_validated: false }),
+    ];
+    expect(quarterRevenueRaw(txs, cats, 1)).toBe(1000);
+    expect(yearRevenueRaw(txs, cats)).toBe(1000);
+    expect(yearRevenueRaw(txs, cats)).toBe(computeKpis(txs, [], cats).revenue);
   });
 });

@@ -42,8 +42,9 @@ export interface ChartMonth {
   label: string;
   monthNum: number; // 1-12
   revenue: number;
-  expense: number;
-  net: number;
+  expense: number; // vraies dépenses, hors rémunération
+  remuneration: number;
+  net: number; // CA - vraies dépenses (comme la carte « Résultat net »)
   objectiveMonthly?: number;
   isCurrent: boolean;
   hasFutureData: boolean;
@@ -88,7 +89,7 @@ export function getDateRange(year: number, period: PeriodType, periodValue: numb
 
 /* ───── Paginated transaction fetch ───── */
 
-async function fetchPaginated(
+export async function fetchPaginated(
   userId: string,
   select: string,
   dateStart: string,
@@ -108,6 +109,10 @@ async function fetchPaginated(
       .lt('date', dateEnd)
       .range(from, from + PAGE - 1);
     if (orderBy) q = q.order(orderBy.column, { ascending: orderBy.ascending });
+    // Tri stable obligatoire pour paginer : sans départage par id, deux lignes
+    // de même date peuvent passer d'une page à l'autre (comptées deux fois ou
+    // jamais).
+    q = q.order('id', { ascending: true });
     const { data, error } = await q;
     if (error) throw error;
     all = all.concat(data ?? []);
@@ -217,6 +222,34 @@ export async function fetchDeclarationData(
   };
 }
 
+/* ───── Prédicats partagés (CA, dépenses, rémunération) ───── */
+
+/**
+ * Règles uniques de classement d'une transaction, utilisées par TOUS les
+ * écrans (cartes, trimestres, graphique mensuel, répartitions, Déclaration,
+ * Objectifs) pour qu'aucun total ne se contredise :
+ * - CA : rentrée positive, classée dans une catégorie de type 'revenue' ET validée ;
+ * - rémunération : sortie classée dans une catégorie de type 'remuneration'
+ *   (ce que tu te reverses), comptée à part ;
+ * - vraie dépense : toute autre sortie d'argent.
+ */
+export interface TransactionPredicates {
+  isRevenue: (t: Transaction) => boolean;
+  isRemuneration: (t: Transaction) => boolean;
+  isRealExpense: (t: Transaction) => boolean;
+}
+
+export function makeTransactionPredicates(categories: Category[]): TransactionPredicates {
+  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
+  const remCatIds = new Set(categories.filter(c => c.type === 'remuneration').map(c => c.id));
+  // is_validated est toujours vrai dès qu'une catégorie est posée (voir CategorizeTransactions),
+  // mais on le vérifie explicitement pour ne jamais compter une catégorisation non confirmée.
+  const isRevenue = (t: Transaction) => t.amount > 0 && !!t.category_id && t.is_validated === true && revCatIds.has(t.category_id);
+  const isRemuneration = (t: Transaction) => t.amount < 0 && !!t.category_id && remCatIds.has(t.category_id);
+  const isRealExpense = (t: Transaction) => t.amount < 0 && !isRemuneration(t);
+  return { isRevenue, isRemuneration, isRealExpense };
+}
+
 /* ───── KPI computation ───── */
 
 /**
@@ -226,13 +259,7 @@ export async function fetchDeclarationData(
  * les charges affichées.
  */
 export function computeKpis(transactions: Transaction[], prevTransactions: Transaction[], categories: Category[]) {
-  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
-  const remCatIds = new Set(categories.filter(c => c.type === 'remuneration').map(c => c.id));
-  // is_validated est toujours vrai dès qu'une catégorie est posée (voir CategorizeTransactions),
-  // mais on le vérifie explicitement pour ne jamais compter une catégorisation non confirmée.
-  const isRevenue = (t: Transaction) => t.amount > 0 && !!t.category_id && t.is_validated === true && revCatIds.has(t.category_id);
-  const isRemuneration = (t: Transaction) => t.amount < 0 && !!t.category_id && remCatIds.has(t.category_id);
-  const isRealExpense = (t: Transaction) => t.amount < 0 && !isRemuneration(t);
+  const { isRevenue, isRemuneration, isRealExpense } = makeTransactionPredicates(categories);
 
   const revenue = transactions.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
   const expense = transactions.filter(isRealExpense).reduce((s, t) => s + Math.abs(t.amount), 0);
@@ -275,7 +302,7 @@ export function computeQuarterlyBreakdown(
   offers: Offer[],
   categories: Category[],
 ): QuarterBreakdown[] {
-  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
+  const { isRevenue } = makeTransactionPredicates(categories);
   const quarters = computeAllQuarters(offers, quarterlyObjectives, year);
   const result: QuarterBreakdown[] = [];
 
@@ -284,7 +311,7 @@ export function computeQuarterlyBreakdown(
     const months = [sm, sm + 1, sm + 2];
     const realRevenue = allYearTransactions
       .filter(t => {
-        if (t.amount <= 0 || !t.category_id || t.is_validated !== true || !revCatIds.has(t.category_id)) return false;
+        if (!isRevenue(t)) return false;
         const m = parseInt(t.date.slice(5, 7), 10);
         return months.includes(m);
       })
@@ -309,7 +336,7 @@ export function buildMonthlyChartData(
   offers: Offer[],
   categories: Category[],
 ): ChartMonth[] {
-  const revCatIds = new Set(categories.filter(c => c.type === 'revenue').map(c => c.id));
+  const { isRevenue, isRemuneration, isRealExpense } = makeTransactionPredicates(categories);
   const now = new Date();
   const currentMonth = now.getFullYear() === year ? now.getMonth() + 1 : 0;
 
@@ -325,15 +352,19 @@ export function buildMonthlyChartData(
     const q = Math.ceil(m / 3);
     const qObj = objByQuarter.get(q) ?? 0;
     const monthTxs = allYearTransactions.filter(t => parseInt(t.date.slice(5, 7), 10) === m);
-    const revenue = monthTxs.filter(t => t.amount > 0 && !!t.category_id && t.is_validated === true && revCatIds.has(t.category_id)).reduce((s, t) => s + t.amount, 0);
-    const expense = monthTxs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-    const hasFutureData = revenue === 0 && expense === 0 && (year > now.getFullYear() || (year === now.getFullYear() && m > currentMonth));
+    const revenue = monthTxs.filter(isRevenue).reduce((s, t) => s + t.amount, 0);
+    // Même règle que la carte « Résultat net » : la rémunération reste à part,
+    // hors dépenses, et Net = CA - vraies dépenses.
+    const expense = monthTxs.filter(isRealExpense).reduce((s, t) => s + Math.abs(t.amount), 0);
+    const remuneration = monthTxs.filter(isRemuneration).reduce((s, t) => s + Math.abs(t.amount), 0);
+    const hasFutureData = revenue === 0 && expense === 0 && remuneration === 0 && (year > now.getFullYear() || (year === now.getFullYear() && m > currentMonth));
 
     months.push({
       label: MONTH_LABELS[m - 1],
       monthNum: m,
       revenue: hasFutureData ? 0 : revenue,
       expense: hasFutureData ? 0 : expense,
+      remuneration: hasFutureData ? 0 : remuneration,
       net: hasFutureData ? 0 : revenue - expense,
       objectiveMonthly: qObj > 0 ? Math.round(qObj / 3) : undefined,
       isCurrent: m === currentMonth,
@@ -345,26 +376,31 @@ export function buildMonthlyChartData(
 
 /* ───── Top categories ───── */
 
+/**
+ * Répartition par catégorie, avec les mêmes règles que les cartes :
+ * - 'revenue' : uniquement le CA (catégories de type revenu, validées) ;
+ * - 'expense' : uniquement les vraies dépenses classées (rémunération exclue).
+ * `limit` absent = toutes les catégories.
+ */
 export function computeTopCategories(
   transactions: Transaction[],
   categories: Category[],
   type: 'expense' | 'revenue',
-  limit = 5,
+  limit?: number,
 ): TopCategory[] {
   const catMap = new Map(categories.map(c => [c.id, c]));
+  const { isRevenue, isRealExpense } = makeTransactionPredicates(categories);
+  const keep = type === 'revenue' ? isRevenue : isRealExpense;
   const totals = new Map<string, number>();
 
   for (const tx of transactions) {
-    if (!tx.category_id) continue;
-    const isRevenue = tx.amount > 0;
-    if (type === 'revenue' && !isRevenue) continue;
-    if (type === 'expense' && isRevenue) continue;
+    if (!tx.category_id || !keep(tx)) continue;
     totals.set(tx.category_id, (totals.get(tx.category_id) ?? 0) + Math.abs(tx.amount));
   }
 
   return Array.from(totals.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
+    .slice(0, limit ?? totals.size)
     .map(([catId, total]) => {
       const cat = catMap.get(catId);
       return {

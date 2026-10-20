@@ -90,15 +90,23 @@ export default function ParametresPage() {
     if (!user) return;
     setExporting(true);
     try {
-      const { data, error } = await supabase
+      // Supabase renvoie au plus 1 000 lignes par requête : on pagine pour
+      // exporter TOUTES les transactions (tri stable date puis id).
+      const PAGE = 1000;
+      const fetchPage = (from: number) => supabase
         .from('transactions')
         .select('date, label, amount, subcategory, notes, source, categories(name, emoji)')
         .eq('user_id', user.id)
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-
-      const rows = data ?? [];
+        .order('date', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      const rows: NonNullable<Awaited<ReturnType<typeof fetchPage>>['data']> = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await fetchPage(from);
+        if (error) throw error;
+        rows.push(...(data ?? []));
+        if ((data?.length ?? 0) < PAGE) break;
+      }
       const header = 'Date,Libellé,Montant,Catégorie,Sous-catégorie,Notes,Source';
       const csvRows = rows.map(r => {
         const cat = (r as any).categories;
