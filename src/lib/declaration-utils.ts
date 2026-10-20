@@ -57,6 +57,18 @@ export function officialRates(regimeId: string, year: number): Bareme {
   return table[known.length > 0 ? known[known.length - 1] : years[0]];
 }
 
+/**
+ * Dernière année dont le barème officiel est enregistré pour ce régime, si
+ * l'année demandée n'y est pas encore (null sinon). Sert au rappel de mise à
+ * jour affiché sur la page Déclaration.
+ */
+export function missingBaremeFallbackYear(regimeId: string, year: number): number | null {
+  const table = BAREMES[regimeId] ?? BAREMES.bnc;
+  const years = Object.keys(table).map(Number);
+  const last = Math.max(...years);
+  return year > last ? last : null;
+}
+
 /** Régimes avec le barème de l'année en cours (pour les valeurs par défaut). */
 export const REGIMES: Regime[] = REGIME_LABELS.map(r => ({
   ...r,
