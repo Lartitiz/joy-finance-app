@@ -75,6 +75,7 @@ export type Database = {
           emoji: string | null
           id: string
           is_default: boolean | null
+          monthly_cap: number | null
           name: string
           sort_order: number | null
           type: string
@@ -86,6 +87,7 @@ export type Database = {
           emoji?: string | null
           id?: string
           is_default?: boolean | null
+          monthly_cap?: number | null
           name: string
           sort_order?: number | null
           type: string
@@ -97,6 +99,7 @@ export type Database = {
           emoji?: string | null
           id?: string
           is_default?: boolean | null
+          monthly_cap?: number | null
           name?: string
           sort_order?: number | null
           type?: string
