@@ -8,6 +8,13 @@
       "when": 1792490932603,
       "tag": "0000_remuneration_and_monthly_cap",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792520406470,
+      "tag": "0001_invoices_number",
+      "breakpoints": true
     }
   ]
 }
