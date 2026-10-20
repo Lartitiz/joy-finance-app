@@ -97,12 +97,12 @@ export default function TresoreriePage() {
 
     setChartData(points.reverse());
 
-    // Pending invoices (sent, not paid)
+    // Factures émises non payées (même règle que la page Factures)
     const { data: invData } = await supabase
       .from('invoices')
-      .select('amount')
+      .select('amount, status')
       .eq('user_id', user.id)
-      .eq('status', 'sent');
+      .in('status', ['sent', 'overdue']);
 
     setPendingInvoices((invData ?? []).reduce((s, i) => s + i.amount, 0));
 
@@ -345,10 +345,10 @@ export default function TresoreriePage() {
                 Entrées attendues
               </div>
               <p className="text-2xl font-mono font-medium text-green-600">{formatEur(pendingInvoices)}</p>
-              <p className="text-[10px] text-muted-foreground">Factures envoyées non payées</p>
+              <p className="text-[10px] text-muted-foreground">Factures émises non payées</p>
               {pendingInvoices === 0 && (
-                <Link to="/objectifs" className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-                  Créer une facture <ArrowRight className="h-3 w-3" />
+                <Link to="/factures" className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+                  Ajouter une facture <ArrowRight className="h-3 w-3" />
                 </Link>
               )}
             </div>
