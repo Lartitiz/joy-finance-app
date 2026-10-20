@@ -47,16 +47,27 @@ describe('pendingProvisions', () => {
 
   it('avant le 31/10 : T3 à payer + T4 en cours', () => {
     const p = pendingProvisions(txs, cats, settingsFor, '2026-10-20');
-    expect(p.previous).toEqual({ year: 2026, quarter: 3, dueDate: '2026-10-31', amount: 2580 });
+    expect(p.previous).toEqual({ year: 2026, quarter: 3, dueDate: '2026-10-31', amount: 2580, late: false });
     expect(p.current.amount).toBe(1290);
     expect(p.tva).toBe(0);
     expect(p.total).toBe(3870);
   });
 
-  it('après le 31/10 : le T3 est considéré comme payé', () => {
-    const p = pendingProvisions(txs, cats, settingsFor, '2026-11-02');
+  it('le T3 sort des provisions dès que son prélèvement URSSAF est importé', () => {
+    const paid = [...txs, tx({ date: '2026-10-30', amount: -2580, label: 'PRLV SEPA URSSAF BOURGOGNE', category_id: null })];
+    const p = pendingProvisions(paid, cats, settingsFor, '2026-11-02');
     expect(p.previous).toBeNull();
     expect(p.total).toBe(1290);
+  });
+
+  it('sans prélèvement importé, le T3 reste dû et passe en retard après le 31/10', () => {
+    const p = pendingProvisions(txs, cats, settingsFor, '2026-11-02');
+    expect(p.previous).toMatchObject({ quarter: 3, amount: 2580, late: true });
+  });
+
+  it('un prélèvement URSSAF daté dans le trimestre ne paie pas ce trimestre', () => {
+    const early = [...txs, tx({ date: '2026-08-04', amount: -2863, label: 'PRLV SEPA URSSAF BOURGOGNE', category_id: null })];
+    expect(pendingProvisions(early, cats, settingsFor, '2026-10-20').previous).not.toBeNull();
   });
 
   it('en janvier : le T4 de l\'année précédente reste dû jusqu\'au 31/01', () => {
