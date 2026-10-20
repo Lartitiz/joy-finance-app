@@ -9,14 +9,21 @@
 -- sans ponctuation, et seulement la partie après le dernier " | ".
 --
 -- Seuls les groupes où le libellé apparaît sous AU MOINS DEUX FORMES
--- (ex. "VIR SEPA STRIPE" et "Vir Sepa Stripe | VIR SEPA STRIPE") sont nettoyés :
--- c'est la signature d'un double import. Dans un groupe, on garde autant de lignes
+-- (ex. "VIR SEPA STRIPE" et "Vir Sepa Stripe | VIR SEPA STRIPE", les majuscules
+-- ne comptant pas) ET qui viennent d'AU MOINS DEUX IMPORTS différents sont
+-- nettoyés : c'est la signature d'un double import. Deux lignes d'un même
+-- fichier (ex. « charge » et « Charge » le 30/09/2025) ne sont jamais touchées. Dans un groupe, on garde autant de lignes
 -- que la forme la plus nombreuse (deux vrais virements identiques importés deux
 -- fois : on en garde deux). La ligne gardée est en priorité celle qui est déjà
 -- catégorisée et validée, puis celle au libellé brut (sans " | ").
 -- Les groupes à une seule forme ne sont jamais supprimés d'office : l'étape 5
 -- les liste pour vérification à la main.
 
+
+-- Déjà lancé le 20/10/2026 (version précédente du script) : 21 lignes de mars
+-- 2026 supprimées, toutes issues de export-operations-04-04-2026 ; la ligne
+-- « Charge » du 30/09/2025 a été écartée à la main. Sauvegarde : schéma
+-- sauvegarde, tables *_20261020. Pour un nouveau passage, changer le suffixe.
 
 -- ═════ ÉTAPE 1 : SAUVEGARDE + LISTE FIGÉE DES LIGNES À SUPPRIMER ═════
 -- Écrit seulement dans un schéma privé « sauvegarde » (non exposé à l'API).
@@ -29,19 +36,26 @@ SELECT * FROM public.transactions;
 CREATE TABLE sauvegarde.doublons_20261020 AS
 WITH norm AS (
   SELECT t.id, t.user_id, t.date, t.amount, t.label, t.category_id,
-         t.is_validated, t.created_at,
+         t.is_validated, t.created_at, t.import_batch_id,
     trim(regexp_replace(
       translate(lower(regexp_replace(t.label, '^.*\s\|\s', '')),
         'àâäáãåçéèêëíìîïñóòôöõúùûüýÿ', 'aaaaaaceeeeiiiinooooouuuuyy'),
       '[^a-z0-9]+', ' ', 'g')) AS label_norm
   FROM public.transactions t
 ), par_forme AS (
-  SELECT user_id, date, amount, label_norm, label, count(*) AS nb
-  FROM norm GROUP BY user_id, date, amount, label_norm, label
-), groupes AS (
+  SELECT user_id, date, amount, label_norm, lower(label) AS forme, count(*) AS nb
+  FROM norm GROUP BY user_id, date, amount, label_norm, lower(label)
+), imports AS (
   SELECT user_id, date, amount, label_norm,
-         count(*) AS nb_formes, max(nb) AS a_garder
-  FROM par_forme GROUP BY user_id, date, amount, label_norm
+         count(DISTINCT import_batch_id) AS nb_imports
+  FROM norm GROUP BY user_id, date, amount, label_norm
+), groupes AS (
+  SELECT p.user_id, p.date, p.amount, p.label_norm,
+         count(*) AS nb_formes, max(p.nb) AS a_garder
+  FROM par_forme p
+  JOIN imports i USING (user_id, date, amount, label_norm)
+  WHERE i.nb_imports >= 2
+  GROUP BY p.user_id, p.date, p.amount, p.label_norm
   HAVING count(*) >= 2
 ), rangs AS (
   SELECT n.*, g.a_garder,
