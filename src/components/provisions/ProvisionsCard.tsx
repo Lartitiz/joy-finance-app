@@ -3,6 +3,8 @@ import { formatEur } from '@/lib/dashboard-utils';
 import type { DeclarationSettings } from '@/lib/declaration-utils';
 import type { Provisions, UrssafDeadline } from '@/lib/provision-utils';
 
+const pct = (n: number) => n.toLocaleString('fr-FR');
+
 const dateFr = (iso: string) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -28,26 +30,31 @@ export function ProvisionsCard({ periodLabel, provisions, settings, deadline }: 
       </div>
       <p className="text-3xl font-mono text-accent">{formatEur(p.total)}</p>
       <div className="space-y-1.5 text-sm">
-        <Line label={`Cotisations sociales (${settings.socialRate} %)`} value={p.social} />
+        <Line label={`Cotisations sociales (${pct(settings.socialRate)} %)`} value={p.social} />
         {settings.cfpRate > 0 && (
-          <Line label={`Formation professionnelle, CFP (${settings.cfpRate} %)`} value={p.cfp} />
+          <Line label={`Formation professionnelle, CFP (${pct(settings.cfpRate)} %)`} value={p.cfp} />
         )}
         {settings.liberatoireEnabled && (
-          <Line label={`Impôt, versement libératoire (${settings.liberatoireRate} %)`} value={p.liberatoire} />
+          <Line label={`Impôt, versement libératoire (${pct(settings.liberatoireRate)} %)`} value={p.liberatoire} />
         )}
         {showTva && (
-          <Line label={`TVA collectée (${settings.tvaRate} %), à reverser`} value={p.tva} />
+          <Line label={`TVA collectée (${pct(settings.tvaRate)} %), à reverser`} value={p.tva} />
         )}
       </div>
 
       <div className="border-t border-border pt-4 space-y-1.5 text-sm">
         <Line label="Encaissements" value={p.encaissements} />
         <Line label="Moins ce qui est à mettre de côté" value={-p.total} />
-        <Line label="Moins les dépenses (hors rémunération)" value={-p.depenses} />
+        <Line label="Moins les dépenses (hors rémunération et URSSAF)" value={-p.depenses} />
         <div className="flex items-center justify-between pt-2">
           <span className="text-accent font-medium">Vraiment à toi</span>
           <span className={`text-2xl font-mono ${p.aMoi >= 0 ? 'text-green-600' : 'text-destructive'}`}>{formatEur(p.aMoi)}</span>
         </div>
+        {p.urssafPaid > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Les prélèvements URSSAF de la période (<span className="font-mono">{formatEur(p.urssafPaid)}</span>) ne sont pas comptés en dépenses : ils paient des cotisations déjà comptées dans ce qui est à mettre de côté.
+          </p>
+        )}
       </div>
 
       <div className="flex items-start gap-2 rounded-2xl border border-border p-4 text-sm">
@@ -74,7 +81,7 @@ function Line({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono text-accent whitespace-nowrap">{formatEur(value)}</span>
+      <span className="font-mono text-accent whitespace-nowrap">{formatEur(value || 0)}</span>
     </div>
   );
 }

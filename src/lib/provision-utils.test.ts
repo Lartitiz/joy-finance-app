@@ -44,6 +44,19 @@ describe('computeProvisions', () => {
     expect(p.aMoi).toBe(10000 - 2580 - 1000);
   });
 
+  it('les prélèvements URSSAF ne sont pas comptés deux fois (provision + dépense)', () => {
+    const txs = [
+      tx({ date: '2026-08-10', amount: 10657.01 }),
+      tx({ date: '2026-08-04', amount: -2863, label: 'PRLV SEPA URSSAF BOURGOGNE', category_id: 'exp' }),
+      tx({ date: '2026-08-20', amount: -5195.21, category_id: 'exp' }),
+    ];
+    const p = computeProvisions(txs, cats, s2026);
+    expect(p.urssafPaid).toBe(2863);
+    expect(p.depenses).toBeCloseTo(5195.21);
+    expect(p.total).toBe(2749);
+    expect(p.aMoi).toBeCloseTo(10657.01 - 2749 - 5195.21);
+  });
+
   it('assujettie : TVA collectée à part, cotisations sur le HT', () => {
     const s = { ...s2026, tvaStartDate: '2027-01-01' };
     const p = computeProvisions([tx({ date: '2027-02-01', amount: 12000 })], cats, s);

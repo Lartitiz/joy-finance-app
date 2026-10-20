@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { fetchPaginated, type Transaction, type Category } from './dashboard-utils';
 import { loadSettings, effectiveSettings, type DeclarationSettings } from './declaration-utils';
-import { computeProvisions, splitRevenue, urssafDueDate, todayIso } from './provision-utils';
+import { computeProvisions, splitRevenue, urssafDueDate, todayIso, isUrssafPayment } from './provision-utils';
 
 /**
  * Trésorerie reconstituée, sans connexion bancaire :
@@ -9,7 +9,8 @@ import { computeProvisions, splitRevenue, urssafDueDate, todayIso } from './prov
  *   à défaut la date de création du compte), solde en fin de journée ;
  * - solde reconstitué = soldes de départ + transactions importées APRÈS cette date ;
  * - provisions en cours = cotisations du trimestre en cours + celles du trimestre
- *   précédent tant que leur échéance n'est pas passée + TVA collectée depuis
+ *   précédent tant qu'aucun prélèvement URSSAF n'a été importé depuis la fin de
+ *   ce trimestre + TVA collectée depuis
  *   l'assujettissement (aucun reversement n'est encore suivi) ;
  * - disponible réel = solde reconstitué - provisions en cours.
  *
@@ -49,8 +50,8 @@ export function reconstituteBalance(accounts: TreasuryAccount[], transactions: P
 
 export interface PendingProvisions {
   current: { year: number; quarter: number; dueDate: string; amount: number };
-  /** Trimestre précédent, seulement si son échéance n'est pas encore passée. */
-  previous: { year: number; quarter: number; dueDate: string; amount: number } | null;
+  /** Trimestre précédent, tant que son prélèvement URSSAF n'apparaît pas dans les relevés. */
+  previous: { year: number; quarter: number; dueDate: string; amount: number; late: boolean } | null;
   tva: number;
   tvaSince: string | null;
   total: number;
@@ -82,7 +83,10 @@ export function pendingProvisions(
   const current = { year, quarter, dueDate: urssafDueDate(year, quarter), amount: cotisationsOf(year, quarter) };
   const pq = previousQuarter(year, quarter);
   const prevDue = urssafDueDate(pq.year, pq.quarter);
-  const previous = prevDue >= today ? { ...pq, dueDate: prevDue, amount: cotisationsOf(pq.year, pq.quarter) } : null;
+  const prevEnd = quarterRange(pq.year, pq.quarter).end;
+  const prevPaid = transactions.some(t => isUrssafPayment(t) && t.date >= prevEnd && t.date <= today);
+  const previous = prevPaid ? null
+    : { ...pq, dueDate: prevDue, amount: cotisationsOf(pq.year, pq.quarter), late: prevDue < today };
 
   const settings = settingsFor(year);
   const tvaSince = settings.tvaStartDate || null;

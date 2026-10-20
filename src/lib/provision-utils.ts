@@ -8,10 +8,16 @@ import { estimateCotisations, type DeclarationSettings } from './declaration-uti
  * - Cotisations URSSAF : calculées sur le CA HT (encaissements moins TVA),
  *   trimestre par trimestre, avec le même arrondi que la page Déclaration pour
  *   que les deux écrans affichent le même montant.
- * - « Vraiment à toi » = encaissements - provisions - dépenses hors rémunération.
+ * - « Vraiment à toi » = encaissements - provisions - dépenses hors rémunération
+ *   et hors prélèvements URSSAF : ces prélèvements paient des cotisations déjà
+ *   comptées dans les provisions (celles du trimestre précédent), les retirer
+ *   aussi en dépenses les compterait deux fois.
  *
  * Les réglages passés doivent être ceux de l'année affichée (effectiveSettings).
  */
+
+/** Prélèvement URSSAF (cotisations), reconnu à son libellé bancaire. */
+export const isUrssafPayment = (t: Pick<Transaction, 'amount' | 'label'>) => t.amount < 0 && /urssaf/i.test(t.label);
 
 /** Part de TVA contenue dans un encaissement (0 avant la date d'assujettissement). */
 export function tvaPart(amount: number, date: string, settings: Pick<DeclarationSettings, 'tvaStartDate' | 'tvaRate'>): number {
@@ -45,7 +51,8 @@ export interface Provisions {
   liberatoire: number;
   cotisations: number;   // social + cfp + libératoire
   total: number;         // cotisations + TVA
-  depenses: number;      // vraies dépenses, hors rémunération
+  depenses: number;      // vraies dépenses, hors rémunération et hors prélèvements URSSAF
+  urssafPaid: number;    // prélèvements URSSAF de la période, non comptés en dépenses
   aMoi: number;          // encaissements - total - dépenses
 }
 
@@ -76,8 +83,9 @@ export function computeProvisions(transactions: Transaction[], categories: Categ
   }
   const cotisations = social + cfp + liberatoire;
   const total = cotisations + tva;
-  const depenses = transactions.filter(isRealExpense).reduce((s, t) => s + Math.abs(t.amount), 0);
-  return { encaissements, tva, social, cfp, liberatoire, cotisations, total, depenses, aMoi: encaissements - total - depenses };
+  const depenses = transactions.filter(t => isRealExpense(t) && !isUrssafPayment(t)).reduce((s, t) => s + Math.abs(t.amount), 0);
+  const urssafPaid = transactions.filter(isUrssafPayment).reduce((s, t) => s + Math.abs(t.amount), 0);
+  return { encaissements, tva, social, cfp, liberatoire, cotisations, total, depenses, urssafPaid, aMoi: encaissements - total - depenses };
 }
 
 /** Échéance URSSAF d'un trimestre : dernier jour du mois qui suit le trimestre (AAAA-MM-JJ). */

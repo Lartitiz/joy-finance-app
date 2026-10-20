@@ -237,7 +237,7 @@ export default function TresoreriePage() {
                 <p className="text-3xl font-mono font-medium text-accent">{formatEur(summary.provisions.total)}</p>
                 <div className="space-y-1 text-xs mt-3">
                   {summary.provisions.previous && (
-                    <Row label={`URSSAF T${summary.provisions.previous.quarter}, à payer avant le ${dateFr(summary.provisions.previous.dueDate)}`}
+                    <Row label={`URSSAF T${summary.provisions.previous.quarter}, ${summary.provisions.previous.late ? 'échéance passée le' : 'à payer avant le'} ${dateFr(summary.provisions.previous.dueDate)}`}
                       value={summary.provisions.previous.amount} />
                   )}
                   <Row label={`URSSAF T${summary.provisions.current.quarter} en cours (échéance ${dateFr(summary.provisions.current.dueDate)})`}
@@ -430,7 +430,7 @@ function Row({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono text-accent whitespace-nowrap">{formatEur(value)}</span>
+      <span className="font-mono text-accent whitespace-nowrap">{formatEur(value || 0)}</span>
     </div>
   );
 }
