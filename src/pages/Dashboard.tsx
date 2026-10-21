@@ -19,6 +19,7 @@ import {
 import { loadSettings, effectiveSettings } from '@/lib/declaration-utils';
 import { computeProvisions, urssafDeadline, upcomingDeadlineQuarter, todayIso } from '@/lib/provision-utils';
 import { ProvisionsCard } from '@/components/provisions/ProvisionsCard';
+import { PendingQuotesCard } from '@/components/quotes/PendingQuotesCard';
 import { fetchTreasurySummary, type TreasurySummary } from '@/lib/treasury-utils';
 import { computeReceivables, type Invoice, type Receivables } from '@/lib/invoice-utils';
 import { supabase } from '@/integrations/supabase/client';
@@ -193,6 +194,8 @@ export default function Dashboard() {
       <ProvisionsCard periodLabel={periodLabel} provisions={provisions} settings={declSettings} deadline={deadline} />
 
       {invoices !== null && <ReceivablesCard receivables={computeReceivables(invoices, today)} hasInvoices={invoices.length > 0} />}
+
+      {user && <PendingQuotesCard userId={user.id} today={today} />}
 
       {/* Activity KPI cards */}
       {activityAgg.hasData && (
