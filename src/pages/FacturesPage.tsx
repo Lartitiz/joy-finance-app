@@ -14,6 +14,7 @@ import {
   computeReceivables, daysLate, effectiveDueDate, isPaid, parseInvoicesCsv,
   type Invoice, type ParsedInvoiceFile,
 } from '@/lib/invoice-utils';
+import RelancesParClient from '@/components/factures/RelancesParClient';
 
 const dateFr = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR');
 
@@ -177,6 +178,8 @@ export default function FacturesPage() {
           <p className="text-xs text-muted-foreground mt-1">{rec.lateCount} facture{rec.lateCount > 1 ? 's' : ''} après la date d'échéance</p>
         </div>
       </div>
+
+      {!loading && <RelancesParClient invoices={invoices} />}
 
       {/* Liste */}
       <div className="bg-card rounded-[20px] shadow-soft p-5 space-y-3">

@@ -17,9 +17,11 @@ import FacturesPage from './FacturesPage';
 describe('FacturesPage', () => {
   it('liste les non payées avec leur retard et les totaux', async () => {
     render(<FacturesPage />);
-    await waitFor(() => expect(screen.getByText('Atelier Rose')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Atelier Rose').length).toBeGreaterThan(0));
     expect(screen.queryByText('Studio B')).toBeNull(); // payée : masquée par défaut
-    expect(screen.getByText(/j de retard/)).toBeInTheDocument();
+    expect(screen.getAllByText(/j de retard/).length).toBeGreaterThan(0);
+    expect(screen.getByText('À relancer')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Relancé aujourd\'hui' })).toBeInTheDocument();
     expect(document.body.textContent).toContain('1\u202f200,00');
   });
 });
