@@ -85,3 +85,17 @@ tail -50 ~/Library/Logs/nowadays-indy-sync.log          # lire le journal
 
 Si le Mac dort à 8 h, le script part au réveil. Le Chrome de connexion doit
 être fermé pendant le lancement.
+
+## Bilan mensuel (factures à relancer, devis à trancher)
+
+```bash
+npm run bilan
+```
+
+Affiche l'objet et le texte d'un e-mail : clients à relancer en priorité (plus
+de 30 jours de retard, pas relancés depuis 15 jours), autres factures non
+payées, devis à relancer (envoyés depuis 15 jours ou plus), signés à facturer,
+expirés sans réponse. Lecture seule, avec la même clé (fonction
+`finance_digest`). Règles dans `src/lib/digest-utils.ts`. L'e-mail est envoyé
+à Laetitia le 1er de chaque mois par la tâche programmée de Claude
+« bilan-mensuel-finance ». Rien n'est envoyé aux clients.
