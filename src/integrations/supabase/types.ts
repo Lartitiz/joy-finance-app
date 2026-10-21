@@ -145,6 +145,30 @@ export type Database = {
           },
         ]
       }
+      client_reminders: {
+        Row: {
+          client_name: string
+          created_at: string
+          id: string
+          reminded_at: string
+          user_id: string
+        }
+        Insert: {
+          client_name: string
+          created_at?: string
+          id?: string
+          reminded_at: string
+          user_id: string
+        }
+        Update: {
+          client_name?: string
+          created_at?: string
+          id?: string
+          reminded_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       import_batches: {
         Row: {
           created_at: string
