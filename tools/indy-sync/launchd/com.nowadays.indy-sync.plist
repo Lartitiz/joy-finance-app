@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Modèle : installer.sh remplace __DOSSIER__, __NODE_BIN__ et __HOME__. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nowadays.indy-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>cd "__DOSSIER__" &amp;&amp; exec npm run --silent sync</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__NODE_BIN__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <!-- Chaque lundi à 8 h. Si le Mac dort à 8 h, launchd lance au réveil. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/nowadays-indy-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/nowadays-indy-sync.log</string>
+</dict>
+</plist>
