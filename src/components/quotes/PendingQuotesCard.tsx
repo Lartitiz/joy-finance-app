@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FileSignature } from 'lucide-react';
+import { ChevronDown, FileSignature } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { supabase } from '@/integrations/supabase/client';
 import { formatEur } from '@/lib/dashboard-utils';
 import { computePendingQuotes, daysSinceIssued, type Quote } from '@/lib/quote-utils';
@@ -74,9 +75,22 @@ export function PendingQuotesCard({ userId, today }: { userId: string; today: st
       )}
 
       {expired.count > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {expired.count} devis expiré{expired.count > 1 ? 's' : ''} sans réponse ({formatEur(expired.total)})
-        </p>
+        <Collapsible>
+          <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-accent">
+            {expired.count} devis expiré{expired.count > 1 ? 's' : ''} sans réponse ({formatEur(expired.total)})
+            <ChevronDown className="w-3.5 h-3.5 transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-1.5 text-xs text-muted-foreground">
+            {expired.quotes.map(q => (
+              <div key={q.id} className="flex items-center justify-between gap-3">
+                <span className="truncate">
+                  {q.client_name} · {q.number}{q.date_expires ? `, expiré le ${dateFr(q.date_expires)}` : ''}
+                </span>
+                <span className="font-mono whitespace-nowrap">{formatEur(q.amount)}</span>
+              </div>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </div>
   );
