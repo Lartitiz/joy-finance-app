@@ -1,0 +1,22 @@
+{
+  "name": "indy-sync",
+  "private": true,
+  "type": "module",
+  "description": "Synchronisation hebdomadaire Indy -> Nowadays Finance (lecture seule sur Indy)",
+  "scripts": {
+    "connexion": "tsx src/connexion.ts",
+    "dry-run": "tsx src/sync.ts --dry-run",
+    "sync": "tsx src/sync.ts",
+    "cle": "tsx src/cle.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "tsc -p ."
+  },
+  "dependencies": {
+    "playwright": "1.56.1",
+    "tsx": "4.20.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.9.1",
+    "typescript": "5.6.3"
+  }
+}
