@@ -1,5 +1,5 @@
 -- Synchronisation hebdomadaire Indy -> app (script local tools/indy-sync).
--- Migration additive : une table « devis » (quotes), une table des clés de
+-- Migration additive et rejouable sans erreur : une table « devis » (quotes), une table des clés de
 -- synchronisation et une fonction qui ajoute ou met à jour les factures et les
 -- devis d'une seule utilisatrice. Rien n'est jamais supprimé.
 
@@ -27,9 +27,13 @@ CREATE TABLE IF NOT EXISTS public.quotes (
 
 ALTER TABLE public.quotes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can select own quotes" ON public.quotes;
 CREATE POLICY "Users can select own quotes" ON public.quotes FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own quotes" ON public.quotes;
 CREATE POLICY "Users can insert own quotes" ON public.quotes FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own quotes" ON public.quotes;
 CREATE POLICY "Users can update own quotes" ON public.quotes FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own quotes" ON public.quotes;
 CREATE POLICY "Users can delete own quotes" ON public.quotes FOR DELETE USING (auth.uid() = user_id);
 
 -- 2. Clés de synchronisation. On ne garde que l'empreinte SHA-256 de la clé :
