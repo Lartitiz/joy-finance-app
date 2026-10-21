@@ -506,6 +506,51 @@ export type Database = {
           },
         ]
       }
+      quotes: {
+        Row: {
+          amount: number
+          client_name: string
+          created_at: string
+          date_expires: string | null
+          date_issued: string
+          id: string
+          number: string
+          source: string
+          status: string
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          client_name: string
+          created_at?: string
+          date_expires?: string | null
+          date_issued: string
+          id?: string
+          number: string
+          source?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          client_name?: string
+          created_at?: string
+          date_expires?: string | null
+          date_issued?: string
+          id?: string
+          number?: string
+          source?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
