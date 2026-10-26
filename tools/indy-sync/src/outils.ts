@@ -35,9 +35,6 @@ export function log(msg: string): void {
   console.log(`[${t}] ${msg}`);
 }
 
-export function today(): string {
-  return new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
-}
 
 /** Notification macOS (sans effet si osascript échoue). */
 export function notify(title: string, message: string): void {

@@ -6,10 +6,14 @@
 import { chromium } from 'playwright';
 import { FormatError, type InvoiceRow, type QuoteRow } from './format.ts';
 import { IndyUnreachable, SessionExpired, readIndyFromPage } from './indy.ts';
-import { composeStop, composeSuccess, sendMail } from './courriel.ts';
-import { CHROME_OPTIONS, PROFILE_DIR, envValue, journal, log, notify, readKey, today } from './outils.ts';
+import { todayParis } from '../../../src/lib/digest-utils.ts';
+import { appRpc, parisDate, readDigestSafe } from './app.ts';
+import { composeStop, composeWeekly, sendMail, syncLine, type Courriel } from './courriel.ts';
+import { CHROME_OPTIONS, PROFILE_DIR, journal, log, notify } from './outils.ts';
+import { weekChanges, type SyncResult } from './semaine.ts';
 
 const DRY_RUN = process.argv.includes('--dry-run');
+const STARTED = new Date();
 
 async function readIndy(): Promise<{ invoices: InvoiceRow[]; quotes: QuoteRow[] }> {
   const context = await chromium.launchPersistentContext(PROFILE_DIR, { ...CHROME_OPTIONS, headless: true })
@@ -26,30 +30,16 @@ async function readIndy(): Promise<{ invoices: InvoiceRow[]; quotes: QuoteRow[] 
   }
 }
 
-interface SyncResult {
-  factures: { nouvelles: InvoiceRow[]; mises_a_jour: { number: string; avant: object; apres: object }[]; inchangees: number; ecarts: { number: string; ecart: string }[] };
-  devis: { nouveaux: QuoteRow[]; mis_a_jour: { number: string; avant: string; apres: string }[]; inchanges: number };
-}
-
 /** Appelle la fonction indy_sync de l'app. null si elle n'est pas encore installée. */
 async function callApp(invoices: InvoiceRow[], quotes: QuoteRow[], dryRun: boolean): Promise<SyncResult | null> {
-  const url = envValue('VITE_SUPABASE_URL');
-  const publicKey = envValue('VITE_SUPABASE_PUBLISHABLE_KEY');
-  const key = readKey();
-  if (!url || !publicKey) throw new Error('adresse ou clé publique de l\'app introuvable dans le .env');
-  if (!key) {
+  const res = await appRpc('indy_sync', { p_invoices: invoices, p_quotes: quotes, p_dry_run: dryRun });
+  if (!res) {
     if (dryRun) return null;
     throw new Error('clé de synchronisation absente du trousseau (lancer npm run cle)');
   }
-  const res = await fetch(`${url}/rest/v1/rpc/indy_sync`, {
-    method: 'POST',
-    headers: { apikey: publicKey, Authorization: `Bearer ${publicKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_key: key, p_invoices: invoices, p_quotes: quotes, p_dry_run: dryRun }),
-  });
-  const text = await res.text();
   if (res.status === 404 && dryRun) return null;
-  if (!res.ok) throw new Error(`l'app a refusé l'écriture (${res.status}) : ${text.slice(0, 300)}`);
-  return JSON.parse(text) as SyncResult;
+  if (res.status < 200 || res.status >= 300) throw new Error(`l'app a refusé l'écriture (${res.status}) : ${res.text.slice(0, 300)}`);
+  return JSON.parse(res.text) as SyncResult;
 }
 
 const eur = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -81,9 +71,15 @@ function printResult(r: SyncResult, dryRun: boolean): string {
   return summary;
 }
 
+function printPreview(mail: Courriel): void {
+  console.log(`\n----- Aperçu de l'e-mail (à blanc : pas envoyé ; listes = état actuel de l'app, avant synchro) -----\nOBJET : ${mail.subject}\n\n${mail.body}\n-----`);
+}
+
 async function main(): Promise<void> {
   log(`Début ${DRY_RUN ? 'du test à blanc' : 'de la synchronisation'} Indy`);
   const { invoices, quotes } = await readIndy();
+  // Lu avant d'écrire : la date de la synchro précédente (« depuis le … »).
+  const before = await readDigestSafe();
   const result = await callApp(invoices, quotes, DRY_RUN);
   if (!result) {
     printRead(invoices, quotes);
@@ -91,28 +87,39 @@ async function main(): Promise<void> {
     return;
   }
   const summary = printResult(result, DRY_RUN);
-  if (DRY_RUN) return;
+  const changes = weekChanges(result, invoices, quotes, parisDate(before?.derniere_synchro));
+  const retries = journal.filter(l => l.includes('nouvelle tentative')).length;
+  const after = DRY_RUN ? before : await readDigestSafe();
+  const mail = composeWeekly(after, todayParis(), changes, syncLine(STARTED, retries), summary);
+  if (DRY_RUN) {
+    printPreview(mail);
+    return;
+  }
   const changed = Boolean(result.factures.nouvelles.length || result.factures.mises_a_jour.length
     || result.factures.ecarts.length || result.devis.nouveaux.length || result.devis.mis_a_jour.length);
   if (changed) notify('Indy : synchronisation faite', summary);
-  sendMail(composeSuccess(today(), summary, !changed, journal));
+  if (!after) log('Listes de l\'app illisibles après la synchro : e-mail court.');
+  sendMail(mail);
 }
 
 /** Arrêt propre : journal, notification, e-mail (sauf à blanc), code de sortie. */
-function stop(what: string, detail: string, code: number): never {
+async function stop(what: string, detail: string, code: number): Promise<never> {
   log(`ARRÊT (${what}) : ${detail} Rien n'est écrit dans l'app.`);
   notify('Indy : synchronisation arrêtée', `${what} : ${detail}`.slice(0, 200));
-  if (!DRY_RUN) sendMail(composeStop(today(), what, detail, journal));
+  if (!DRY_RUN) {
+    const lines = [...journal];
+    sendMail(composeStop(what, detail, await readDigestSafe(), todayParis(), lines));
+  }
   process.exit(code);
 }
 
-main().then(() => log('Fin, sans erreur')).catch((err: unknown) => {
+main().then(() => log('Fin, sans erreur')).catch(async (err: unknown) => {
   if (err instanceof SessionExpired) {
-    stop('session Indy expirée', 'Lancer « npm run connexion » dans tools/indy-sync, se connecter à Indy, puis quitter ce Chrome avec Cmd+Q.', 2);
+    await stop('session Indy expirée', 'Lancer « npm run connexion » dans tools/indy-sync, se connecter à Indy, puis quitter ce Chrome avec Cmd+Q.', 2);
   }
   if (err instanceof IndyUnreachable) {
-    stop('Indy injoignable', `${err.message}. Vérifier le Wi-Fi du Mac ; prochaine synchro lundi prochain.`, 3);
+    await stop('Indy injoignable', `${err.message}. Vérifier le Wi-Fi du Mac ; prochaine synchro lundi prochain.`, 3);
   }
   const msg = err instanceof Error ? err.message : String(err);
-  stop(err instanceof FormatError ? 'la structure des données Indy a changé' : 'erreur', `${msg}.`, 1);
+  await stop(err instanceof FormatError ? 'la structure des données Indy a changé' : 'erreur', `${msg}.`, 1);
 });

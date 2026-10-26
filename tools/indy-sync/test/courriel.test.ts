@@ -1,27 +1,38 @@
-// Tests de la composition des e-mails de fin de synchro (sans envoi).
+// Tests de la composition des e-mails (sans envoi).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { composeStop, composeSuccess } from '../src/courriel.ts';
+import type { DigestData, WeekChanges } from '../../../src/lib/digest-utils.ts';
+import { composeStop, composeWeekly, syncLine } from '../src/courriel.ts';
 
-const lines = ['[02/11/2026 08:00:01] Début de la synchronisation Indy', '[02/11/2026 08:00:30] Fin, sans erreur'];
+const data: DigestData = {
+  derniere_synchro: '2026-10-26T06:01:12+00:00',
+  factures: [{ id: 'a', number: 'F1', client_name: 'Yvan Ensco', amount: 400, date_issued: '2026-05-10', date_due: '2026-06-10', status: 'sent', paid_date: null }],
+  relances: [],
+  devis: [],
+};
+const noChange: WeekChanges = { since: '2026-10-26', paid: [], invoiced: [], creditNotes: [], cancelledInvoices: [], newQuotes: [], signedQuotes: [], refusedQuotes: [], gaps: [] };
 
-test('succès avec changements : le résumé dans l\'objet, le journal dans le corps', () => {
-  const m = composeSuccess('02/11/2026', 'factures : 2 nouvelles, 0 mises à jour, 44 inchangées · devis : 0 nouveaux, 1 mis à jour, 30 inchangés', false, lines);
-  assert.equal(m.subject, 'Synchro Indy du 02/11/2026 : factures : 2 nouvelles, 0 mises à jour, 44 inchangées · devis : 0 nouveaux, 1 mis à jour, 30 inchangés');
-  assert.match(m.body, /^Écrit dans l'app : factures : 2 nouvelles/);
-  assert.ok(m.body.endsWith(lines.join('\n')));
+test('ligne technique : jour, date, heure de Paris, reprises réseau', () => {
+  const d = new Date('2026-11-02T07:01:00Z');
+  assert.equal(syncLine(d, 0), 'Synchro Indy OK, lundi 02/11 à 08:01.');
+  assert.equal(syncLine(d, 2), 'Synchro Indy OK, lundi 02/11 à 08:01 (après 2 reprises réseau).');
 });
 
-test('succès sans changement : « rien de nouveau »', () => {
-  const m = composeSuccess('02/11/2026', 'factures : 0 nouvelles, 0 mises à jour, 44 inchangées · devis : 0 nouveaux, 0 mis à jour, 31 inchangés', true, lines);
-  assert.equal(m.subject, 'Synchro Indy du 02/11/2026 : rien de nouveau');
-  assert.match(m.body, /^Rien de nouveau dans Indy .*44 inchangées/);
+test('succès : e-mail complet quand l\'app est lisible, court sinon', () => {
+  const full = composeWeekly(data, '2026-11-02', noChange, 'Synchro Indy OK.', 'factures : …');
+  assert.match(full.subject, /^Nowadays · 1 client à relancer · 400,00 € à encaisser$/);
+  assert.match(full.body, /^À FAIRE CETTE SEMAINE\n- Relancer Yvan Ensco : 400,00 €, 145 j de retard, jamais relancé/);
+  const short = composeWeekly(null, '2026-11-02', noChange, 'Synchro Indy OK.', 'factures : 1 nouvelle');
+  assert.equal(short.subject, 'Nowadays · synchro Indy faite (factures : 1 nouvelle)');
+  assert.match(short.body, /n'ont pas pu être lues/);
 });
 
-test('arrêt : le motif dans l\'objet, quoi faire et « rien n\'est écrit » dans le corps', () => {
-  const m = composeStop('02/11/2026', 'session Indy expirée', 'Lancer « npm run connexion » dans tools/indy-sync.', lines);
-  assert.equal(m.subject, 'Synchro Indy du 02/11/2026 : ARRÊT (session Indy expirée)');
-  assert.match(m.body, /^Lancer « npm run connexion »/);
-  assert.match(m.body, /Rien n'est écrit dans l'app\./);
-  assert.ok(m.body.includes('Journal :\n[02/11/2026 08:00:01]'));
+test('arrêt : motif dans l\'objet, quoi faire d\'abord, listes de la dernière synchro, journal', () => {
+  const m = composeStop('session Indy expirée', 'Lancer « npm run connexion ».', data, '2026-11-02', ['[02/11/2026 08:00:01] Début']);
+  assert.equal(m.subject, 'Nowadays · synchro Indy arrêtée (session Indy expirée)');
+  assert.match(m.body, /^La synchro Indy s'est arrêtée : session Indy expirée\.\nQUOI FAIRE : Lancer « npm run connexion »\.\nRien n'est écrit dans l'app\./);
+  assert.match(m.body, /À FAIRE CETTE SEMAINE \(d'après la synchro du 26\/10\/2026\)\n- Relancer Yvan Ensco/);
+  assert.ok(m.body.endsWith('Journal :\n[02/11/2026 08:00:01] Début'));
+  const bare = composeStop('Indy injoignable', 'Vérifier le Wi-Fi.', null, '2026-11-02', []);
+  assert.doesNotMatch(bare.body, /À FAIRE/);
 });
