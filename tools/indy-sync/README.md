@@ -20,6 +20,11 @@ Dans l'app : ajouts et mises à jour, jamais de suppression.
   notification macOS.
 - **Session Indy expirée** : arrêt propre et notification « Indy : reconnexion
   nécessaire », sans réessayer.
+- **Indy injoignable** (Wi-Fi pas encore remonté au réveil du Mac, page qui ne
+  charge pas) : trois nouvelles tentatives, 30 s, 2 min puis 5 min après la
+  précédente, chacune notée dans le journal. Si Indy ne répond toujours pas :
+  « ARRÊT (Indy injoignable) », rien n'est écrit, la synchro repassera le lundi
+  suivant. Une session expirée ou une donnée inattendue n'est jamais réessayée.
 
 ## Où sont les choses
 
