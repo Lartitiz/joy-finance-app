@@ -2,44 +2,13 @@
 //   npm run dry-run   lit Indy et affiche ce qui serait écrit, sans rien écrire
 //   npm run sync      lit Indy et écrit dans l'app (ajouts et mises à jour)
 // Lecture seule sur Indy : uniquement des requêtes GET, aucun clic.
-import { chromium, type Page } from 'playwright';
-import {
-  FormatError, checkTotals, readPage, readTotals, toInvoiceRow, toQuoteRow,
-  type InvoiceRow, type QuoteRow,
-} from './format.ts';
-import { CHROME_OPTIONS, INDY, PROFILE_DIR, envValue, log, notify, readKey } from './outils.ts';
+// Erreur réseau au départ (Wi-Fi pas remonté) : jusqu'à 3 nouvelles tentatives, voir indy.ts.
+import { chromium } from 'playwright';
+import { FormatError, type InvoiceRow, type QuoteRow } from './format.ts';
+import { IndyUnreachable, SessionExpired, readIndyFromPage } from './indy.ts';
+import { CHROME_OPTIONS, PROFILE_DIR, envValue, log, notify, readKey } from './outils.ts';
 
 const DRY_RUN = process.argv.includes('--dry-run');
-const PAGE_SIZE = 100;
-
-class SessionExpired extends Error {}
-
-/** GET sur l'API d'Indy depuis la page, avec les cookies du profil dédié. */
-async function indyGet(page: Page, path: string): Promise<unknown> {
-  const res = await page.evaluate(async (p) => {
-    const r = await fetch(p, { method: 'GET', credentials: 'include', headers: { accept: 'application/json' } });
-    return { status: r.status, text: await r.text() };
-  }, path);
-  if (res.status === 401 || res.status === 403) throw new SessionExpired();
-  if (res.status !== 200) throw new FormatError(`Indy a répondu ${res.status} sur ${path.split('?')[0]}`);
-  try {
-    return JSON.parse(res.text);
-  } catch {
-    throw new FormatError(`réponse Indy illisible sur ${path.split('?')[0]}`);
-  }
-}
-
-async function readAll(page: Page, path: string, key: string): Promise<unknown[]> {
-  const all: unknown[] = [];
-  for (let start = 0; ; start += PAGE_SIZE) {
-    const { items, total } = readPage(await indyGet(page, `${path}?start=${start}&limit=${PAGE_SIZE}`), key);
-    all.push(...items);
-    if (items.length === 0 || all.length >= total) {
-      if (all.length !== total) throw new FormatError(`liste « ${key} » incomplète : ${all.length} lus sur ${total}`);
-      return all;
-    }
-  }
-}
 
 async function readIndy(): Promise<{ invoices: InvoiceRow[]; quotes: QuoteRow[] }> {
   const context = await chromium.launchPersistentContext(PROFILE_DIR, { ...CHROME_OPTIONS, headless: true })
@@ -50,31 +19,7 @@ async function readIndy(): Promise<{ invoices: InvoiceRow[]; quotes: QuoteRow[] 
     });
   try {
     const page = context.pages()[0] ?? await context.newPage();
-    await page.goto(`${INDY}/facturation/factures`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await indyGet(page, '/api/end-user/me');
-
-    const rawInvoices = await readAll(page, '/api/facturation-invoices/documents/invoices', 'invoices');
-    const rawQuotes = await readAll(page, '/api/facturation-invoices/documents/quotations', 'quotations');
-    const totals = readTotals(
-      await indyGet(page, '/api/facturation/invoices/kpis'),
-      await indyGet(page, '/api/facturation/quotations/kpis'),
-      await indyGet(page, '/api/facturation/invoices/count'),
-      await indyGet(page, '/api/facturation/quotations/count'),
-    );
-
-    const invoices = rawInvoices.map(toInvoiceRow);
-    const invoicedQuoteIds = new Set(rawInvoices
-      .map(i => (i as Record<string, unknown>).fromQuotationId)
-      .filter((id): id is string => typeof id === 'string'));
-    const quotes = rawQuotes.map(q => toQuoteRow(q, invoicedQuoteIds));
-
-    const numbers = [...invoices, ...quotes].map(r => r.number);
-    const dup = numbers.find((n, i) => numbers.indexOf(n) !== i);
-    if (dup) throw new FormatError(`numéro en double dans Indy : ${dup}`);
-
-    const gaps = checkTotals(invoices, quotes, totals);
-    if (gaps.length) throw new FormatError(`les totaux ne concordent pas avec Indy (${gaps.join(' ; ')})`);
-    return { invoices, quotes };
+    return await readIndyFromPage(page);
   } finally {
     await context.close();
   }
@@ -156,6 +101,11 @@ main().then(() => log('Fin, sans erreur')).catch((err: unknown) => {
     log('ARRÊT : session Indy expirée. Lancer « npm run connexion » dans tools/indy-sync. Rien n\'est écrit.');
     notify('Indy : reconnexion nécessaire', 'Ouvre tools/indy-sync et lance npm run connexion.');
     process.exit(2);
+  }
+  if (err instanceof IndyUnreachable) {
+    log(`ARRÊT (Indy injoignable) : ${err.message}. Vérifier le Wi-Fi du Mac ; prochaine synchro lundi prochain. Rien n'est écrit dans l'app.`);
+    notify('Indy : injoignable', `${err.message}. Rien n'est écrit dans l'app.`.slice(0, 200));
+    process.exit(3);
   }
   const msg = err instanceof Error ? err.message : String(err);
   const what = err instanceof FormatError ? 'la structure des données Indy a changé' : 'erreur';
