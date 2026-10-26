@@ -6,7 +6,8 @@
 import { chromium } from 'playwright';
 import { FormatError, type InvoiceRow, type QuoteRow } from './format.ts';
 import { IndyUnreachable, SessionExpired, readIndyFromPage } from './indy.ts';
-import { CHROME_OPTIONS, PROFILE_DIR, envValue, log, notify, readKey } from './outils.ts';
+import { composeStop, composeSuccess, sendMail } from './courriel.ts';
+import { CHROME_OPTIONS, PROFILE_DIR, envValue, journal, log, notify, readKey, today } from './outils.ts';
 
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -90,26 +91,28 @@ async function main(): Promise<void> {
     return;
   }
   const summary = printResult(result, DRY_RUN);
-  if (!DRY_RUN && (result.factures.nouvelles.length || result.factures.mises_a_jour.length
-      || result.factures.ecarts.length || result.devis.nouveaux.length || result.devis.mis_a_jour.length)) {
-    notify('Indy : synchronisation faite', summary);
-  }
+  if (DRY_RUN) return;
+  const changed = Boolean(result.factures.nouvelles.length || result.factures.mises_a_jour.length
+    || result.factures.ecarts.length || result.devis.nouveaux.length || result.devis.mis_a_jour.length);
+  if (changed) notify('Indy : synchronisation faite', summary);
+  sendMail(composeSuccess(today(), summary, !changed, journal));
+}
+
+/** Arrêt propre : journal, notification, e-mail (sauf à blanc), code de sortie. */
+function stop(what: string, detail: string, code: number): never {
+  log(`ARRÊT (${what}) : ${detail} Rien n'est écrit dans l'app.`);
+  notify('Indy : synchronisation arrêtée', `${what} : ${detail}`.slice(0, 200));
+  if (!DRY_RUN) sendMail(composeStop(today(), what, detail, journal));
+  process.exit(code);
 }
 
 main().then(() => log('Fin, sans erreur')).catch((err: unknown) => {
   if (err instanceof SessionExpired) {
-    log('ARRÊT : session Indy expirée. Lancer « npm run connexion » dans tools/indy-sync. Rien n\'est écrit.');
-    notify('Indy : reconnexion nécessaire', 'Ouvre tools/indy-sync et lance npm run connexion.');
-    process.exit(2);
+    stop('session Indy expirée', 'Lancer « npm run connexion » dans tools/indy-sync, se connecter à Indy, puis quitter ce Chrome avec Cmd+Q.', 2);
   }
   if (err instanceof IndyUnreachable) {
-    log(`ARRÊT (Indy injoignable) : ${err.message}. Vérifier le Wi-Fi du Mac ; prochaine synchro lundi prochain. Rien n'est écrit dans l'app.`);
-    notify('Indy : injoignable', `${err.message}. Rien n'est écrit dans l'app.`.slice(0, 200));
-    process.exit(3);
+    stop('Indy injoignable', `${err.message}. Vérifier le Wi-Fi du Mac ; prochaine synchro lundi prochain.`, 3);
   }
   const msg = err instanceof Error ? err.message : String(err);
-  const what = err instanceof FormatError ? 'la structure des données Indy a changé' : 'erreur';
-  log(`ARRÊT (${what}) : ${msg}. Rien n'est écrit dans l'app.`);
-  notify('Indy : synchronisation arrêtée', `${what} : ${msg}`.slice(0, 200));
-  process.exit(1);
+  stop(err instanceof FormatError ? 'la structure des données Indy a changé' : 'erreur', `${msg}.`, 1);
 });

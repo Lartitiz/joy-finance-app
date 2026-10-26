@@ -23,9 +23,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const TOOL_DIR = join(HERE, '..');
 export const REPO_DIR = join(TOOL_DIR, '../..');
 
+/** Destinataire de l'e-mail de fin de synchro (INDY_SYNC_EMAIL dans tools/indy-sync/.env pour changer). */
+export const EMAIL_TO = envValue('INDY_SYNC_EMAIL') ?? 'laetitia@nowadaysagency.com';
+
+/** Lignes écrites par log() depuis le début de l'exécution (reprises dans l'e-mail). */
+export const journal: string[] = [];
+
 export function log(msg: string): void {
   const t = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+  journal.push(`[${t}] ${msg}`);
   console.log(`[${t}] ${msg}`);
+}
+
+export function today(): string {
+  return new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
 }
 
 /** Notification macOS (sans effet si osascript échoue). */
