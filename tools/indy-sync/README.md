@@ -19,6 +19,14 @@ Dans l'app : ajouts et mises à jour, jamais de suppression.
   attente, sans les refusés). Au moindre écart, ou devant un statut ou un champ inconnu, il
   s'arrête sans rien écrire, l'explique dans le journal et envoie une
   notification macOS.
+- **E-mail de fin de synchro** : à chaque vraie synchro (pas à blanc), un
+  e-mail part par Mail.app du Mac, succès comme arrêt. L'objet dit le résultat
+  (« Synchro Indy du 02/11/2026 : factures : 2 nouvelles… », « … : rien de
+  nouveau », « … : ARRÊT (session Indy expirée) »), le corps reprend le journal
+  et, en cas d'arrêt, quoi faire. Destinataire : `INDY_SYNC_EMAIL` dans
+  `tools/indy-sync/.env`, sinon l'adresse Nowadays. Mail.app doit avoir un
+  compte configuré ; `npm run courriel` envoie un e-mail de test. Un échec
+  d'envoi est journalisé et n'arrête pas la synchro.
 - **Session Indy expirée** : arrêt propre et notification « Indy : reconnexion
   nécessaire », sans réessayer.
 - **Indy injoignable** (Wi-Fi pas encore remonté au réveil du Mac, page qui ne
@@ -75,7 +83,8 @@ migration `supabase/migrations/20261020150000_indy_sync.sql`.
 ## Tester
 
 ```bash
-npm run dry-run     # à blanc : lit Indy, affiche ce qui serait écrit, n'écrit rien
+npm run dry-run     # à blanc : lit Indy, affiche ce qui serait écrit, n'écrit rien, n'envoie pas d'e-mail
+npm run courriel    # envoie un e-mail de test par Mail.app
 npm run sync        # vraie synchronisation
 npm test            # tests sans réseau
 ```

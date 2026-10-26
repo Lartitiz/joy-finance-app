@@ -9,6 +9,7 @@
     "sync": "tsx src/sync.ts",
     "bilan": "tsx src/bilan.ts",
     "cle": "tsx src/cle.ts",
+    "courriel": "tsx src/courriel.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "check": "tsc -p ."
   },
