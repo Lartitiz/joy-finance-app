@@ -19,14 +19,8 @@ Dans l'app : ajouts et mises à jour, jamais de suppression.
   attente, sans les refusés). Au moindre écart, ou devant un statut ou un champ inconnu, il
   s'arrête sans rien écrire, l'explique dans le journal et envoie une
   notification macOS.
-- **E-mail de fin de synchro** : à chaque vraie synchro (pas à blanc), un
-  e-mail part par Mail.app du Mac, succès comme arrêt. L'objet dit le résultat
-  (« Synchro Indy du 02/11/2026 : factures : 2 nouvelles… », « … : rien de
-  nouveau », « … : ARRÊT (session Indy expirée) »), le corps reprend le journal
-  et, en cas d'arrêt, quoi faire. Destinataire : `INDY_SYNC_EMAIL` dans
-  `tools/indy-sync/.env`, sinon l'adresse Nowadays. Mail.app doit avoir un
-  compte configuré ; `npm run courriel` envoie un e-mail de test. Un échec
-  d'envoi est journalisé et n'arrête pas la synchro.
+- **E-mail du lundi** : à chaque vraie synchro (pas à blanc), un e-mail part
+  par Mail.app du Mac, succès comme arrêt. Voir plus bas.
 - **Session Indy expirée** : arrêt propre et notification « Indy : reconnexion
   nécessaire », sans réessayer.
 - **Indy injoignable** (Wi-Fi pas encore remonté au réveil du Mac, page qui ne
@@ -84,7 +78,7 @@ migration `supabase/migrations/20261020150000_indy_sync.sql`.
 
 ```bash
 npm run dry-run     # à blanc : lit Indy, affiche ce qui serait écrit, n'écrit rien, n'envoie pas d'e-mail
-npm run courriel    # envoie un e-mail de test par Mail.app
+npm run courriel    # envoie un aperçu de l'e-mail du lundi par Mail.app
 npm run sync        # vraie synchronisation
 npm test            # tests sans réseau
 ```
@@ -101,16 +95,38 @@ tail -50 ~/Library/Logs/nowadays-indy-sync.log          # lire le journal
 Si le Mac dort à 8 h, le script part au réveil. Le Chrome de connexion doit
 être fermé pendant le lancement.
 
-## Bilan mensuel (factures à relancer, devis à trancher)
+## E-mail du lundi (à faire, changements de la semaine, où tu en es)
+
+Après chaque vraie synchro, un e-mail part par **Mail.app** du Mac (compte
+configuré dans Mail, AppleScript), dans cet ordre :
+
+1. **À faire cette semaine** : clients à relancer (plus de 30 jours de retard,
+   pas relancés depuis 15 jours), devis signés à facturer, devis sans réponse
+   depuis 15 jours, devis expirés à relancer ou annuler.
+2. **Depuis la dernière synchro** : factures passées payées, nouvelles factures,
+   avoirs, annulations, nouveaux devis, devis signés, refusés, écarts à vérifier,
+   avec client et montant.
+3. **Où tu en es** : total à encaisser et part en retard, échéances des 7 jours
+   à venir, autres factures non payées, devis récents.
+4. Une ligne technique (heure, reprises réseau éventuelles).
+
+L'objet résume : « Nowadays · 2 clients à relancer · 1 facture payée ·
+1 234,50 € à encaisser ». Si la synchro s'arrête, l'objet le dit (« Nowadays ·
+synchro Indy arrêtée (session Indy expirée) ») et le corps commence par quoi
+faire, suivi des listes de la dernière synchro réussie et du journal.
+
+Règles dans `src/lib/digest-utils.ts` (les mêmes que la page Factures et le bloc
+« Devis en attente ») ; tri des changements dans `src/semaine.ts`. Lecture des
+listes par la fonction `finance_digest` de l'app, avec la même clé.
+Destinataire : `INDY_SYNC_EMAIL` dans `tools/indy-sync/.env`, sinon l'adresse
+Nowadays. Un échec d'envoi est journalisé (« E-mail impossible (Mail.app) ») et
+n'arrête pas la synchro. Rien n'est jamais envoyé aux clients.
 
 ```bash
-npm run bilan
+npm run bilan       # aperçu de l'e-mail sur les données actuelles de l'app (sans synchro, sans envoi)
+npm run courriel    # envoie cet aperçu par Mail.app, objet préfixé « [test] »
+npm run dry-run     # lit Indy et affiche l'e-mail qui partirait, sans écrire ni envoyer
 ```
 
-Affiche l'objet et le texte d'un e-mail : clients à relancer en priorité (plus
-de 30 jours de retard, pas relancés depuis 15 jours), autres factures non
-payées, devis à relancer (envoyés depuis 15 jours ou plus), signés à facturer,
-expirés sans réponse. Lecture seule, avec la même clé (fonction
-`finance_digest`). Règles dans `src/lib/digest-utils.ts`. L'e-mail est envoyé
-à Laetitia le 1er de chaque mois par la tâche programmée de Claude
-« bilan-mensuel-finance ». Rien n'est envoyé aux clients.
+Remplace le bilan mensuel du 1er (tâche programmée « bilan-mensuel-finance »,
+désactivée le 26/10/2026).
