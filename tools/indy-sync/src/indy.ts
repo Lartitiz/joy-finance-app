@@ -26,6 +26,10 @@ export interface RetryOptions {
   delays?: number[];
   /** Fonction d'attente (remplacée dans les tests pour ne pas attendre). */
   sleep?: (ms: number) => Promise<void>;
+  /** Qui ne répond pas, pour le journal (« Indy » par défaut). */
+  who?: string;
+  /** Erreur levée quand toutes les tentatives ont échoué (IndyUnreachable par défaut). */
+  giveUp?: (message: string) => Error;
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -37,7 +41,7 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 export function networkReason(err: unknown): string | null {
   if (err instanceof SessionExpired || err instanceof FormatError) return null;
   const msg = err instanceof Error ? err.message : String(err);
-  const m = msg.match(/Failed to fetch|net::ERR_[A-Z0-9_]+|Timeout \d+ms exceeded|signal timed out|NetworkError|Load failed/i);
+  const m = msg.match(/Failed to fetch|fetch failed(?: \([A-Z0-9_]+\))?|HTTP 50[234]|net::ERR_[A-Z0-9_]+|Timeout \d+ms exceeded|signal timed out|NetworkError|Load failed/i);
   if (!m) return null;
   if (/^Timeout/i.test(m[0])) return 'page Indy pas chargée en 60 s';
   if (/timed out/i.test(m[0])) return 'pas de réponse en 60 s';
@@ -64,10 +68,11 @@ export async function withRetry<T>(what: string, fn: () => Promise<T>, opts: Ret
       if (!reason) throw err;
       if (attempt >= attempts) {
         const total = formatDelay(delays.reduce((a, b) => a + b, 0));
-        throw new IndyUnreachable(`${what} : ${reason} à chacune des ${attempts} tentatives sur ${total}`);
+        const message = `${what} : ${reason} à chacune des ${attempts} tentatives sur ${total}`;
+        throw opts.giveUp ? opts.giveUp(message) : new IndyUnreachable(message);
       }
       const delay = delays[attempt - 1];
-      log(`Indy ne répond pas (${reason}), nouvelle tentative ${attempt + 1}/${attempts} dans ${formatDelay(delay)}`);
+      log(`${opts.who ?? 'Indy'} ne répond pas (${reason}), nouvelle tentative ${attempt + 1}/${attempts} dans ${formatDelay(delay)}`);
       await wait(delay);
     }
   }

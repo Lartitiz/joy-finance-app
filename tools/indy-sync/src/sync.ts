@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 import { FormatError, type InvoiceRow, type QuoteRow } from './format.ts';
 import { IndyUnreachable, SessionExpired, readIndyFromPage } from './indy.ts';
 import { todayParis } from '../../../src/lib/digest-utils.ts';
-import { appRpc, parisDate, readDigestSafe } from './app.ts';
+import { AppUnreachable, parisDate, readDigestSafe, syncWithApp } from './app.ts';
 import { composeStop, composeWeekly, sendMail, syncLine, type Courriel } from './courriel.ts';
 import { CHROME_OPTIONS, PROFILE_DIR, journal, log, notify } from './outils.ts';
 import { weekChanges, type SyncResult } from './semaine.ts';
@@ -28,18 +28,6 @@ async function readIndy(): Promise<{ invoices: InvoiceRow[]; quotes: QuoteRow[] 
   } finally {
     await context.close();
   }
-}
-
-/** Appelle la fonction indy_sync de l'app. null si elle n'est pas encore installée. */
-async function callApp(invoices: InvoiceRow[], quotes: QuoteRow[], dryRun: boolean): Promise<SyncResult | null> {
-  const res = await appRpc('indy_sync', { p_invoices: invoices, p_quotes: quotes, p_dry_run: dryRun });
-  if (!res) {
-    if (dryRun) return null;
-    throw new Error('clé de synchronisation absente du trousseau (lancer npm run cle)');
-  }
-  if (res.status === 404 && dryRun) return null;
-  if (res.status < 200 || res.status >= 300) throw new Error(`l'app a refusé l'écriture (${res.status}) : ${res.text.slice(0, 300)}`);
-  return JSON.parse(res.text) as SyncResult;
 }
 
 const eur = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -80,7 +68,7 @@ async function main(): Promise<void> {
   const { invoices, quotes } = await readIndy();
   // Lu avant d'écrire : la date de la synchro précédente (« depuis le … »).
   const before = await readDigestSafe();
-  const result = await callApp(invoices, quotes, DRY_RUN);
+  const result = await syncWithApp(invoices, quotes, DRY_RUN);
   if (!result) {
     printRead(invoices, quotes);
     log('À BLANC : comparaison avec l\'app impossible (fonction indy_sync pas encore installée ou clé absente). Rien n\'est écrit.');
@@ -116,6 +104,9 @@ async function stop(what: string, detail: string, code: number): Promise<never> 
 main().then(() => log('Fin, sans erreur')).catch(async (err: unknown) => {
   if (err instanceof SessionExpired) {
     await stop('session Indy expirée', 'Lancer « npm run connexion » dans tools/indy-sync, se connecter à Indy, puis quitter ce Chrome avec Cmd+Q.', 2);
+  }
+  if (err instanceof AppUnreachable) {
+    await stop('app injoignable', `${err.message}. Rien n'a pu être confirmé côté app ; la synchro repassera lundi prochain.`, 4);
   }
   if (err instanceof IndyUnreachable) {
     await stop('Indy injoignable', `${err.message}. Vérifier le Wi-Fi du Mac ; prochaine synchro lundi prochain.`, 3);
