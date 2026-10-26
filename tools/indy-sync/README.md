@@ -28,6 +28,12 @@ Dans l'app : ajouts et mises à jour, jamais de suppression.
   précédente, chacune notée dans le journal. Si Indy ne répond toujours pas :
   « ARRÊT (Indy injoignable) », rien n'est écrit, la synchro repassera le lundi
   suivant. Une session expirée ou une donnée inattendue n'est jamais réessayée.
+- **App injoignable** (écriture dans Nowadays Finance) : même reprise, 30 s,
+  2 min puis 5 min, sur coupure réseau, délai de 60 s dépassé ou passerelle
+  indisponible (502, 503, 504). Un refus de l'app n'est jamais réessayé. Le
+  script calcule d'abord à blanc ce qui va changer : si l'écriture a été
+  appliquée mais que sa réponse s'est perdue, l'e-mail garde quand même le
+  détail. Échec final : « ARRÊT (app injoignable) », code de sortie 4.
 
 ## Où sont les choses
 
