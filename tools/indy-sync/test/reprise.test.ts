@@ -20,7 +20,7 @@ const responses: Record<string, unknown> = {
   '/api/facturation-invoices/documents/invoices': { invoices: [invoice], pagination: { total: 1 } },
   '/api/facturation-invoices/documents/quotations': { quotations: [quote], pagination: { total: 1 } },
   '/api/facturation/invoices/kpis': { kpis: { totalInvoicedAmount: { totalTTCInCents: 20000 }, waitingForPaymentAmount: { totalTTCInCents: 20000 } } },
-  '/api/facturation/quotations/kpis': { kpis: { totalQuotationsAmount: { totalTTCInCents: 15000 }, totalQuotationsPendingAmount: { totalTTCInCents: 0 } } },
+  '/api/facturation/quotations/kpis': { kpis: { totalQuotationsAmount: { totalTTCInCents: 15000 }, totalQuotationsAcceptedAmount: { totalTTCInCents: 15000 }, totalQuotationsPendingAmount: { totalTTCInCents: 0 } } },
   '/api/facturation/invoices/count': { count: 1 },
   '/api/facturation/quotations/count': { count: 1 },
 };

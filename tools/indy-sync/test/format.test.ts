@@ -50,10 +50,16 @@ test('page de liste : structure vérifiée', () => {
   assert.throws(() => readPage({ data: [] }, 'invoices'), /structure de réponse inattendue/);
 });
 
+const quoteKpis = (acceptedCents: number, pendingCents: number) => ({ kpis: {
+  totalQuotationsAmount: { totalTTCInCents: acceptedCents + pendingCents },
+  totalQuotationsAcceptedAmount: { totalTTCInCents: acceptedCents },
+  totalQuotationsPendingAmount: { totalTTCInCents: pendingCents },
+} });
+
 test('totaux : concordance et écart signalé', () => {
   const totals = readTotals(
     { kpis: { totalInvoicedAmount: { totalTTCInCents: 20000 }, waitingForPaymentAmount: { totalTTCInCents: 20000 } } },
-    { kpis: { totalQuotationsAmount: { totalTTCInCents: 15000 }, totalQuotationsPendingAmount: { totalTTCInCents: 0 } } },
+    quoteKpis(15000, 0),
     { count: 1 }, { count: 1 },
   );
   const inv = [toInvoiceRow(invoice)];
@@ -61,4 +67,19 @@ test('totaux : concordance et écart signalé', () => {
   assert.deepEqual(checkTotals(inv, q, totals), []);
   assert.match(checkTotals([], q, totals).join(), /nombre de factures : lu 0, Indy affiche 1/);
   assert.throws(() => readTotals({}, {}, { count: 1 }, { count: 1 }), /totaux Indy/);
+});
+
+test('totaux des devis : un devis refusé compte dans le nombre, pas dans les montants (Indy, 26/10/2026)', () => {
+  const invKpis = { kpis: { totalInvoicedAmount: { totalTTCInCents: 20000 }, waitingForPaymentAmount: { totalTTCInCents: 20000 } } };
+  const inv = [toInvoiceRow(invoice)];
+  const signed = toQuoteRow(quote, new Set());
+  const pending = toQuoteRow({ ...quote, id: 'q2', fullNumber: 'D202610-29', status: 'PENDING', totalTTC: 20000 }, new Set());
+  const refused = toQuoteRow({ ...quote, id: 'q3', fullNumber: 'D202608-24', status: 'REFUSED', totalTTC: 8000 }, new Set());
+  const totals = readTotals(invKpis, quoteKpis(15000, 20000), { count: 1 }, { count: 3 });
+  assert.deepEqual(checkTotals(inv, [signed, pending, refused], totals), []);
+  const gaps = checkTotals(inv, [signed, pending], readTotals(invKpis, quoteKpis(15000, 20000), { count: 1 }, { count: 2 }));
+  assert.deepEqual(gaps, []);
+  const wrong = checkTotals(inv, [signed, pending, refused], readTotals(invKpis, quoteKpis(23000, 20000), { count: 1 }, { count: 3 }));
+  assert.match(wrong.join(' ; '), /total des devis \(signés \+ en attente\) : lu 350,00 €, Indy affiche 430,00 €/);
+  assert.match(wrong.join(' ; '), /devis signés : lu 150,00 €, Indy affiche 230,00 €/);
 });

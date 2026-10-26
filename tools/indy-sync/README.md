@@ -14,8 +14,9 @@ Dans l'app : ajouts et mises à jour, jamais de suppression.
 - **Devis** : en attente, signé (accepté sans facture), facturé (une facture en
   est issue).
 - **Garde-fou** : avant d'écrire, il compare ce qu'il a lu aux totaux affichés
-  par Indy (nombre de factures et de devis, total facturé, non payées, devis en
-  attente). Au moindre écart, ou devant un statut ou un champ inconnu, il
+  par Indy (nombre de factures et de devis, total facturé, non payées, devis
+  signés, devis en attente ; le « total des devis » d'Indy = signés + en
+  attente, sans les refusés). Au moindre écart, ou devant un statut ou un champ inconnu, il
   s'arrête sans rien écrire, l'explique dans le journal et envoie une
   notification macOS.
 - **Session Indy expirée** : arrêt propre et notification « Indy : reconnexion

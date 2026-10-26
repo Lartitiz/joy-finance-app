@@ -31,7 +31,9 @@ export interface IndyTotals {
   quotesCount: number;
   invoicedTTC: number;
   waitingTTC: number;
+  /** Total des devis selon Indy = acceptés + en attente (les refusés, annulés et expirés n'y sont pas). */
   quotesTTC: number;
+  quotesAcceptedTTC: number;
   quotesPendingTTC: number;
 }
 
@@ -165,6 +167,7 @@ export function readTotals(invKpis: unknown, quoteKpis: unknown, invCount: unkno
     invoicedTTC: ttc(invKpis, ['kpis', 'totalInvoicedAmount']),
     waitingTTC: ttc(invKpis, ['kpis', 'waitingForPaymentAmount']),
     quotesTTC: ttc(quoteKpis, ['kpis', 'totalQuotationsAmount']),
+    quotesAcceptedTTC: ttc(quoteKpis, ['kpis', 'totalQuotationsAcceptedAmount']),
     quotesPendingTTC: ttc(quoteKpis, ['kpis', 'totalQuotationsPendingAmount']),
   };
 }
@@ -184,7 +187,12 @@ export function checkTotals(invoices: InvoiceRow[], quotes: QuoteRow[], t: IndyT
   cmp('nombre de devis', quotes.length, t.quotesCount, false);
   cmp('total facturé', sum(invoices.filter(i => i.status !== 'cancelled')), t.invoicedTTC);
   cmp('factures non payées', sum(invoices.filter(i => i.status === 'sent')), t.waitingTTC);
-  cmp('total des devis', sum(quotes), t.quotesTTC);
-  cmp('devis en attente', sum(quotes.filter(q => q.status === 'pending')), t.quotesPendingTTC);
+  // Constaté le 26/10/2026 : le « total des devis » d'Indy = acceptés + en attente ;
+  // un devis refusé (D202608-24, 80 €) en est exclu.
+  const pending = quotes.filter(q => q.status === 'pending');
+  const accepted = quotes.filter(q => q.status === 'signed' || q.status === 'invoiced');
+  cmp('total des devis (signés + en attente)', sum([...accepted, ...pending]), t.quotesTTC);
+  cmp('devis signés', sum(accepted), t.quotesAcceptedTTC);
+  cmp('devis en attente', sum(pending), t.quotesPendingTTC);
   return gaps;
 }
